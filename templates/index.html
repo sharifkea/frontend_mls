@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLS Messenger</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Login/Register Container -->
+        <div id="auth-container" class="auth-container">
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('login')">Login</button>
+                <button class="tab-btn" onclick="switchTab('register')">Register</button>
+            </div>
+            
+            <!-- Login Form -->
+            <div id="login-form" class="auth-form active">
+                <h2>Welcome Back</h2>
+                <div class="form-group">
+                    <label for="login-username">Username</label>
+                    <input type="text" id="login-username" placeholder="Enter username">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" placeholder="Enter password">
+                </div>
+                <button class="auth-btn" onclick="handleLogin()">Login</button>
+                <div id="login-error" class="error-message"></div>
+            </div>
+            
+            <!-- Register Form -->
+            <div id="register-form" class="auth-form">
+                <h2>Create Account</h2>
+                <div class="form-group">
+                    <label for="register-username">Username</label>
+                    <input type="text" id="register-username" placeholder="Choose username">
+                </div>
+                <div class="form-group">
+                    <label for="register-password">Password</label>
+                    <input type="password" id="register-password" placeholder="Choose password">
+                </div>
+                <div class="form-group">
+                    <label for="register-confirm">Confirm Password</label>
+                    <input type="password" id="register-confirm" placeholder="Confirm password">
+                </div>
+                <button class="auth-btn" onclick="handleRegister()">Register</button>
+                <div id="register-error" class="error-message"></div>
+            </div>
+        </div>
+        
+        <!-- Main App Container (hidden until login) -->
+        <div id="app-container" class="app-container" style="display: none;">
+            <div class="header">
+                <h2>MLS Messenger</h2>
+                <div class="user-info">
+                    <span id="user-display"></span>
+                    <button class="logout-btn" onclick="handleLogout()">Logout</button>
+                </div>
+            </div>
+            
+            <!-- Groups List -->
+            <div class="groups-section">
+                <h3>Your Groups</h3>
+                <div id="groups-list" class="groups-list">
+                    <!-- Groups will be loaded here -->
+                </div>
+                <button class="create-group-btn" onclick="createGroup()">+ New Group</button>
+            </div>
+            
+            <!-- Messages Section -->
+            <div class="messages-section">
+                <div id="current-group" class="current-group">
+                    <h3 id="group-name">Select a group</h3>
+                </div>
+                <div id="messages-container" class="messages-container">
+                    <!-- Messages will appear here -->
+                </div>
+                <div class="message-input">
+                    <input type="text" id="message-text" placeholder="Type a message..." disabled>
+                    <button id="send-btn" onclick="sendMessage()" disabled>Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
