@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MLS Messenger</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/app.js" defer></script>
 </head>
 <body>
     <div class="container">
@@ -66,7 +67,9 @@
                 <div id="groups-list" class="groups-list">
                     <!-- Groups will be loaded here -->
                 </div>
-                <button class="create-group-btn" onclick="createGroup()">+ New Group</button>
+                <button class="create-group-btn" onclick="createGroupWithOnline()">
+                    Create Group with Online Users
+                </button>
             </div>
             
             <!-- Messages Section -->

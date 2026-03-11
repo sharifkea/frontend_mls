@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+asyncpg
+python-dotenv
+passlib[bcrypt]
+pyjwt
+flask 
+flask-cors 
+requests 
+python-dotenv 
+cryptography
+pyhpke

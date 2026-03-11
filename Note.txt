@@ -2,5 +2,144 @@ python -m venv venv
 source venv/Scripts/activate
 
 pip install flask flask-cors requests python-dotenv cryptography
+pip install -r requirements.txt
 
 python app.py
+
+def update_group_epoch(group_id_b64: str, new_epoch: int, token: str, epoch_secret: bytes = None):
+    """Update group epoch"""
+    try:
+        import base64
+        url = f"{BASE_URL}/groups/{group_id_b64}/epoch?new_epoch={new_epoch}"
+        payload = {}
+        if epoch_secret:
+            payload["epoch_secret"] = base64.b64encode(epoch_secret).decode('ascii')
+        
+        response = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+#app.py
+@app.route('/api/groups/create-with-online', methods=['POST'])
+def create_group_with_online():
+    """Create a group with all currently online users"""
+    data = request.json
+    group_name = data.get('group_name', 'MLS Group')
+    users= data.get('users', [])  # List of online users from frontend (optional)
+    creator_id = session.get('user_id')
+    
+    if not creator_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if creator_id not in user_crypto_store:
+        return jsonify({'error': 'Your crypto material not found'}), 400
+    
+    try:
+        # 1. Get all online users (including creator)
+        token = session.get('token')
+        online_users = list(active_sessions.keys())
+        print(f"Creating group with online users: {online_users}")
+        
+        if len(online_users) < 2:
+            return jsonify({'error': 'Need at least 2 users online to create group'}), 400
+        
+        # 2. Get creator's leaf node
+        creator_username = active_sessions[creator_id]['username']
+        
+        # Get creator's key package from DB
+        creator_kp_bytes = api_client.get_latest_keypackage(creator_id)
+        if not creator_kp_bytes:
+            return jsonify({'error': 'Creator key package not found'}), 400
+        
+        from mls_stuff.MLS._key_package import KeyPackage
+        creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
+        creator_leaf = creator_kp.content.leaf_node
+        
+        # 3. Create empty group with creator
+        from test_message_enc import create_empty_group
+        group = create_empty_group(creator_leaf, creator_username)
+        
+        # Get group ID in base64 (handle both old and new versions)
+        group_id_b64 = group.get('group_id_b64')
+        if not group_id_b64:
+            # Fallback for older version
+            group_id_bytes = group['group_id'].data
+            group_id_b64 = base64.b64encode(group_id_bytes).decode('ascii')
+        
+        print(f"Group created with ID: {group_id_b64}")
+        
+        # 4. Initialize groups dict for creator if needed
+        if 'groups' not in user_crypto_store[creator_id]:
+            user_crypto_store[creator_id]['groups'] = {}
+        
+        # Store group state for creator
+        user_crypto_store[creator_id]['groups'][group_id_b64] = {
+            'epoch_secret': base64.b64encode(group['epoch_secret']).decode('ascii'),
+            'init_secret': base64.b64encode(group['init_secret']).decode('ascii'),
+            'epoch': group['epoch']
+        }
+
+         # 6. Save group metadata to database
+        result = api_client.create_group(
+            group_name, 
+            1, 
+            session.get('token'),
+            group_id_b64
+        )
+        
+        # 5. Add each online user to the group
+        from test_message_enc import add_member
+        
+        for member_id in users:
+            if member_id == creator_id:
+                continue  # Skip creator, already added
+            
+            print(f"Adding member: {member_id}")
+            
+            # Get member's key package
+            member_kp_bytes = api_client.get_latest_keypackage(member_id)
+            if not member_kp_bytes:
+                print(f"Warning: No key package for {member_id}, skipping")
+                continue
+            
+            # Add member to group
+            add_member(group, member_id, user_crypto_store[creator_id]['private_key'])
+            
+            # Store group state for the new member if they're online
+            if member_id in user_crypto_store:
+                if 'groups' not in user_crypto_store[member_id]:
+                    user_crypto_store[member_id]['groups'] = {}
+                
+                user_crypto_store[member_id]['groups'][group_id_b64] = {
+                    'epoch_secret': base64.b64encode(group['epoch_secret']).decode('ascii'),
+                    'init_secret': base64.b64encode(group['init_secret']).decode('ascii'),
+                    'epoch': group['epoch']
+                }
+        
+        # Update epoch in database
+        print("\n🔄 Updating group epoch in database after adding Alice")
+        
+        if (save_epoch_secret_in_db(
+            group_id_b64, 
+            group['epoch'],  # Should be 1 after add_member
+            session.get('token'), 
+            group['epoch_secret']
+        )):
+            print("✅ Group epoch updated in database")
+        else:
+            print("❌ Failed to update group epoch in database")
+
+        return jsonify({
+            'success': True,
+            'group_id': group_id_b64,
+            'group_name': group_name,
+            'member_count': len(group['members']),
+            'members': group['members']
+        })
+        
+    except Exception as e:
+        print(f"Error creating group: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
