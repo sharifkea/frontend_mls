@@ -4,6 +4,9 @@
 const DB_NAME = 'MLSMessengerDB';
 const DB_VERSION = 1;
 
+let welcomeCheckInterval = null;
+let isCheckingWelcomes = false;
+
 // Store names
 const STORES = {
     SESSION: 'session',
@@ -171,27 +174,28 @@ async function handleLogin() {
             // Save session
             await saveSession(data.user_id, data.token, data.username);
             
-            // Check if key package was generated successfully
-            if (!data.has_key_package) {
-                console.warn('Login succeeded but key package generation failed');
-                // You could show a warning but still let user in
-                // errorDiv.textContent = 'Warning: Key package generation failed';
-            }
-            
             // Show main app
             document.getElementById('auth-container').style.display = 'none';
             document.getElementById('app-container').style.display = 'block';
             document.getElementById('user-display').textContent = data.username;
+
+            // INITIALIZE UI COMPONENTS AND EVENT LISTENERS
+            initializeUI(); 
             
             // Load user's groups
-            loadUserGroups(data.user_id, data.token);
+            await loadUserGroups(data.user_id, data.token);
+            
+            // CHECK FOR PENDING WELCOMES AFTER LOGIN
+            await checkForPendingWelcomes();
+            
+            // START PERIODIC WELCOME CHECKING (every 30 seconds)
+            startWelcomePolling();
         }
     } catch (error) {
         console.error('Login error:', error);
         errorDiv.textContent = 'Network error';
     }
 }
-
 // Generate key package for user
 async function generateUserKeyPackage(username) {
     try {
@@ -217,6 +221,9 @@ async function generateUserKeyPackage(username) {
 
 // Handle Logout
 async function handleLogout() {
+    // Stop welcome polling
+    stopWelcomePolling();
+    
     await clearSession();
     
     document.getElementById('auth-container').style.display = 'block';
@@ -225,6 +232,7 @@ async function handleLogout() {
     document.getElementById('login-password').value = '';
     document.getElementById('login-error').textContent = '';
 }
+
 
 // Create new group
 async function createGroup() {
@@ -306,22 +314,54 @@ async function createGroup() {
 // Load user's groups
 async function loadUserGroups(userId, token) {
     try {
+        console.log('📡 Loading groups for user:', userId);
+        
         const response = await fetch('/api/groups', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         
         if (!response.ok) {
-            throw new Error('Failed to load groups');
+            const errorText = await response.text();
+            console.error('❌ Groups response not OK:', response.status, errorText);
+            throw new Error(`Failed to load groups: ${response.status}`);
         }
         
-        const groups = await response.json();
-        displayGroups(groups);
+        const data = await response.json();
+        console.log('📥 Groups response:', data);
         
-        // Save to IndexedDB
-        saveGroupsToDB(userId, groups);
+        // Check the response structure from your Flask endpoint
+        if (data.success && data.groups) {
+            // ✅ Success - we have groups
+            console.log(`✅ Found ${data.groups.length} groups`);
+            displayGroups(data.groups);
+            saveGroupsToDB(userId, data.groups);
+        } else if (data.groups) {
+            // Some endpoints return groups directly without success flag
+            console.log(`✅ Found ${data.groups.length} groups (direct format)`);
+            displayGroups(data.groups);
+            saveGroupsToDB(userId, data.groups);
+        } else if (Array.isArray(data)) {
+            // If the response is directly an array
+            console.log(`✅ Found ${data.length} groups (array format)`);
+            displayGroups(data);
+            saveGroupsToDB(userId, data);
+        } else {
+            // No groups found or unexpected format
+            console.log('⚠️ No groups found or unexpected format:', data);
+            displayGroups([]);
+            saveGroupsToDB(userId, []);
+        }
+        
     } catch (error) {
-        console.error('Failed to load groups:', error);
-        loadGroupsFromDB(userId);
+        console.error('❌ Failed to load groups:', error);
+        // Try to load from IndexedDB as fallback
+        const offlineGroups = await loadGroupsFromDB(userId);
+        if (offlineGroups && offlineGroups.length > 0) {
+            console.log(`📦 Loaded ${offlineGroups.length} groups from IndexedDB`);
+            displayGroups(offlineGroups);
+        } else {
+            displayGroups([]);
+        }
     }
 }
 
@@ -557,6 +597,224 @@ async function createGroupWithOnline() {
         alert('Error: ' + error.message);
     }
 }
+
+// Simple notification function
+function showNotification(message, type = 'info') {
+    // You can implement this as a toast or alert
+    // For now, just console.log
+    console.log(`🔔 [${type}] ${message}`);
+    
+    // Optional: Create a temporary div notification
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px;
+        background: ${type === 'success' ? '#4CAF50' : '#2196F3'};
+        color: white;
+        border-radius: 5px;
+        z-index: 1000;
+        animation: slideIn 0.3s ease;
+    `;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 5000);
+}
+
+// Start periodic welcome checking
+function startWelcomePolling(intervalSeconds = 30) {
+    if (welcomeCheckInterval) {
+        clearInterval(welcomeCheckInterval);
+    }
+    
+    console.log(`🕒 Starting welcome polling every ${intervalSeconds} seconds`);
+    welcomeCheckInterval = setInterval(async () => {
+        if (!isCheckingWelcomes) {
+            isCheckingWelcomes = true;
+            try {
+                await checkForPendingWelcomes();
+            } catch (error) {
+                console.error('Error in welcome polling:', error);
+            } finally {
+                isCheckingWelcomes = false;
+            }
+        }
+    }, intervalSeconds * 1000);
+}
+
+// Stop welcome polling
+function stopWelcomePolling() {
+    if (welcomeCheckInterval) {
+        clearInterval(welcomeCheckInterval);
+        welcomeCheckInterval = null;
+        console.log('🛑 Stopped welcome polling');
+    }
+}
+
+// Enhanced checkForPendingWelcomes function
+async function checkForPendingWelcomes() {
+    const session = await loadSession();
+    if (!session) return;
+    
+    try {
+        console.log('📨 Checking for pending welcome messages...');
+        
+        const response = await fetch('/api/welcomes/pending', {
+            headers: { 'Authorization': `Bearer ${session.token}` }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch welcomes');
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.welcomes && data.welcomes.length > 0) {
+            console.log(`🎉 You have ${data.welcomes.length} new group invitation(s)!`);
+            
+            // Show notification with count
+            showNotification(`You have ${data.welcomes.length} new group invitation(s)!`, 'info');
+            
+            // Process each welcome
+            let joinedCount = 0;
+            for (const welcome of data.welcomes) {
+                const success = await processWelcome(welcome, session.token);
+                if (success) joinedCount++;
+            }
+            
+            // If any welcomes were processed successfully, refresh the groups list
+            if (joinedCount > 0) {
+                console.log(`✅ Successfully joined ${joinedCount} new groups`);
+                showNotification(`Joined ${joinedCount} new group(s)!`, 'success');
+                await loadUserGroups(session.user_id, session.token);
+            }
+        }
+    } catch (error) {
+        console.error('Error checking welcomes:', error);
+    }
+}
+
+// Enhanced processWelcome function
+async function processWelcome(welcome, token) {
+    try {
+        console.log('Processing welcome for group:', welcome.group_id);
+        
+        const response = await fetch('/api/welcomes/process', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                welcome_b64: welcome.welcome_b64,
+                group_id: welcome.group_id
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log(`✅ Successfully joined group: ${data.group_id}`);
+            
+            // Show a small toast notification for this group
+            showToast(`Joined new group!`, 'success');
+            // Refresh group list
+            const session = await loadSession();
+            if (session) {
+                await loadUserGroups(session.userId, session.token);
+            }
+            
+            return true;
+        } else {
+            console.error('Failed to join group:', data.error);
+            showToast(`Failed to join group: ${data.error}`, 'error');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error processing welcome:', error);
+        return false;
+    }
+}
+
+// Toast notification function (smaller than notification)
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    
+    // Style the toast
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
+        color: white;
+        border-radius: 4px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;
+        animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
+        font-size: 14px;
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.remove();
+        }
+    }, 3000);
+}
+
+// Also check for welcomes when window gains focus (user returns to tab)
+window.addEventListener('focus', async () => {
+    const session = await loadSession();
+    if (session) {
+        console.log('🖥️ Window focused, checking for welcomes...');
+        await checkForPendingWelcomes();
+        await loadUserGroups(session.user_id, session.token);
+    }
+});
+
+// Add a manual refresh button to the groups section
+function addRefreshButton() {
+    const groupsSection = document.querySelector('.groups-section h3');
+    if (groupsSection && !document.getElementById('refresh-groups-btn')) {
+        const refreshBtn = document.createElement('button');
+        refreshBtn.id = 'refresh-groups-btn';
+        refreshBtn.innerHTML = '↻';
+        refreshBtn.title = 'Refresh groups';
+        refreshBtn.style.cssText = `
+            float: right;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #667eea;
+            padding: 0 5px;
+        `;
+        refreshBtn.onclick = async () => {
+            const session = await loadSession();
+            if (session) {
+                await checkForPendingWelcomes();
+                await loadUserGroups(session.user_id, session.token);
+            }
+        };
+        groupsSection.appendChild(refreshBtn);
+    }
+}
+
+// Call this after login
+function initializeUI() {
+    addRefreshButton();
+}
+
 
 // Check for existing session on page load
 window.addEventListener('load', async () => {

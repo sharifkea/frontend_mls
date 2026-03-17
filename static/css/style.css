@@ -285,3 +285,169 @@ body {
     background: #f5f5f5;
     cursor: not-allowed;
 }
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.notification {
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.notification.fade-out {
+    animation: fadeOut 0.3s ease;
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+/* Add to your style.css */
+
+/* Toast animations */
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+/* Toast styles */
+.toast {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    pointer-events: none;
+}
+
+.toast.success {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+}
+
+.toast.error {
+    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+}
+
+.toast.info {
+    background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+}
+
+/* Existing notification style update */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 15px 25px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    z-index: 1000;
+    animation: slideInRight 0.3s ease;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.notification.fade-out {
+    animation: fadeOut 0.3s ease forwards;
+}
+
+/* Group item hover animation */
+.group-item {
+    transition: all 0.3s ease;
+}
+
+.group-item:hover {
+    transform: translateX(5px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
+}
+
+/* New group badge animation */
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.new-group-badge {
+    display: inline-block;
+    background: #4CAF50;
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 8px;
+    animation: pulse 1s ease 3;
+}
+
+/* Loading indicator for groups */
+.groups-loading {
+    text-align: center;
+    padding: 20px;
+    color: #999;
+    font-style: italic;
+}
+
+.groups-loading::after {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin-left: 10px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Refresh button animation */
+#refresh-groups-btn {
+    transition: transform 0.3s ease;
+}
+
+#refresh-groups-btn:hover {
+    transform: rotate(180deg);
+}
+
+#refresh-groups-btn:active {
+    transform: rotate(180deg) scale(0.9);
+}
+
+/* Unread indicator for new groups */
+.group-item.unread {
+    border-left: 3px solid #4CAF50;
+    background: linear-gradient(to right, rgba(76, 175, 80, 0.05), white);
+}

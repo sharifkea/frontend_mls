@@ -1,0 +1,555 @@
+#app.py
+
+@app.route('/api/welcomes/pending', methods=['GET'])
+def get_pending_welcomes():
+    """Get all pending welcome messages for the current user"""
+    user_id = session.get('user_id')
+    token = session.get('token')
+    
+    if not user_id or not token:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        # Call FastAPI to get pending welcomes
+        welcomes_data = api_client.get_pending_welcomes(token)
+        
+        if 'error' in welcomes_data:
+            return jsonify({'error': welcomes_data['error']}), 400
+        
+        return jsonify({
+            'success': True,
+            'welcomes': welcomes_data.get('welcomes', [])
+        })
+        
+    except Exception as e:
+        print(f"❌ Error fetching pending welcomes: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/welcomes/process', methods=['POST'])
+def process_welcome():
+    """Process a welcome message and join a group"""
+    data = request.json
+    welcome_b64 = data.get('welcome_b64')
+    group_id_b64 = data.get('group_id')
+    
+    user_id = session.get('user_id')
+    username = session.get('username')
+    
+    if not user_id or not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    # Get the private key from user_crypto_store
+    if user_id not in user_crypto_store or 'private_key' not in user_crypto_store[user_id]:
+        return jsonify({'error': 'No private key found. Please login again.'}), 400
+    
+    private_key = user_crypto_store[user_id]['private_key']
+    
+    try:
+        # Call the processing function and PASS the private key
+        result = api_client.process_single_welcome(
+            private_key=private_key,  # ← Pass the stored key!
+            welcome_b64=welcome_b64,
+            group_id_b64=group_id_b64,
+            token=session.get('token')
+        )
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 400
+        
+        # Mark welcome as delivered (optional)
+        # You might want to call an endpoint to mark it as delivered
+        
+        return jsonify({
+            'success': True,
+            'group_id': group_id_b64,
+            'message': 'Successfully joined group'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error processing welcome: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+
+
+#in api_client
+def process_single_welcome(private_key: bytes, welcome_b64: str, group_id_b64: str, token: str):
+    """Process a single welcome message and join the group using provided private key"""
+    try:
+        import base64
+        from mls_stuff.MLS._welcome import Welcome
+        from cryp_hpke import simple_hpke_open
+        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+        
+        # Decode welcome
+        welcome_bytes = base64.b64decode(welcome_b64)
+        welcome = Welcome.deserialize(bytearray(welcome_bytes))
+        
+        # Create private key object
+        skR = X25519PrivateKey.from_private_bytes(private_key)
+        
+        # Decrypt GroupSecrets (first secret should be for this user)
+        encrypted = welcome.secrets[0].encrypted_group_secrets
+        kem_output = encrypted.kem_output.data
+        ciphertext = encrypted.ciphertext.data
+        
+        group_secrets_bytes = simple_hpke_open(
+            skR,
+            b"MLS 1.0 external init secret",
+            kem_output,
+            ciphertext
+        )
+        
+        from mls_stuff.Crypto import GroupSecrets
+        group_secrets = GroupSecrets.deserialize(group_secrets_bytes)
+        print(f"✅ Group secrets decrypted")
+        
+        # 4. Decrypt the GroupInfo using the joiner_secret
+        
+        # This is a simplified version - adjust based on your library
+        group_info_bytes = welcome.decrypt_group_info(
+            joiner_secret=group_secrets.joiner_secret.data,
+            psk_secret=bytes(32)  # No PSK for now
+        )
+        
+        group_info = GroupInfo.deserialize(group_info_bytes)
+        print(f"✅ Group info decrypted")
+        
+        # 5. Reconstruct the group state
+        group_context = group_info.group_context
+        group_id = group_context.group_id.data
+        
+        # Create a new ratchet tree
+        tree = RatchetTree()
+        # You need to populate the tree from the group info
+        # This depends on your library's serialization
+        
+        # 6. Store the group state in user_crypto_store
+        # This would be in your Flask app's memory or database
+        
+        # For now, return the group info
+        #return {'success': True, 'group_id_b64': group_id_b64}
+        return {
+            'success': True,
+            'group_id_b64': group_id_b64,
+            'epoch': group_context.epoch,
+            'group_name': f"Group {group_id.hex()[:8]}"
+        }
+        
+    except Exception as e:
+        print(f"❌ Error processing welcome: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+
+#app.js
+// Add these variables at the top of your app.js
+let welcomeCheckInterval = null;
+let isCheckingWelcomes = false;
+
+// Update your handleLogin function
+async function handleLogin() {
+    const username = document.getElementById('login-username').value;
+    const password = document.getElementById('login-password').value;
+    const errorDiv = document.getElementById('login-error');
+    
+    if (!username || !password) {
+        errorDiv.textContent = 'Username and password required';
+        return;
+    }
+    
+    try {
+        console.log('Logging in...');
+        const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        console.log('Login response:', data);
+        
+        if (!response.ok) {
+            errorDiv.textContent = data.error || 'Login failed';
+            return;
+        }
+        
+        if (data.error) {
+            errorDiv.textContent = data.error;
+        } else {
+            // Save session
+            await saveSession(data.user_id, data.token, data.username);
+            
+            // Show main app
+            document.getElementById('auth-container').style.display = 'none';
+            document.getElementById('app-container').style.display = 'block';
+            document.getElementById('user-display').textContent = data.username;
+            
+            // ===== INITIALIZE UI COMPONENTS =====
+            initializeUI(); 
+            
+            // Load user's groups
+            await loadUserGroups(data.user_id, data.token);
+            
+            // CHECK FOR PENDING WELCOMES AFTER LOGIN
+            await checkForPendingWelcomes();
+            
+            // START PERIODIC WELCOME CHECKING (every 30 seconds)
+            startWelcomePolling();
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        errorDiv.textContent = 'Network error';
+    }
+}
+
+// Update handleLogout to stop polling
+async function handleLogout() {
+    // Stop welcome polling
+    stopWelcomePolling();
+    
+    await clearSession();
+    
+    document.getElementById('auth-container').style.display = 'block';
+    document.getElementById('app-container').style.display = 'none';
+    document.getElementById('login-username').value = '';
+    document.getElementById('login-password').value = '';
+    document.getElementById('login-error').textContent = '';
+}
+
+// Start periodic welcome checking
+function startWelcomePolling(intervalSeconds = 30) {
+    if (welcomeCheckInterval) {
+        clearInterval(welcomeCheckInterval);
+    }
+    
+    console.log(`🕒 Starting welcome polling every ${intervalSeconds} seconds`);
+    welcomeCheckInterval = setInterval(async () => {
+        if (!isCheckingWelcomes) {
+            isCheckingWelcomes = true;
+            try {
+                await checkForPendingWelcomes();
+            } catch (error) {
+                console.error('Error in welcome polling:', error);
+            } finally {
+                isCheckingWelcomes = false;
+            }
+        }
+    }, intervalSeconds * 1000);
+}
+
+// Stop welcome polling
+function stopWelcomePolling() {
+    if (welcomeCheckInterval) {
+        clearInterval(welcomeCheckInterval);
+        welcomeCheckInterval = null;
+        console.log('🛑 Stopped welcome polling');
+    }
+}
+
+// Enhanced checkForPendingWelcomes function
+async function checkForPendingWelcomes() {
+    const session = await loadSession();
+    if (!session) return;
+    
+    try {
+        console.log('📨 Checking for pending welcome messages...');
+        
+        const response = await fetch('/api/welcomes/pending', {
+            headers: { 'Authorization': `Bearer ${session.token}` }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch welcomes');
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.welcomes && data.welcomes.length > 0) {
+            console.log(`🎉 You have ${data.welcomes.length} new group invitation(s)!`);
+            
+            // Show notification with count
+            showNotification(`You have ${data.welcomes.length} new group invitation(s)!`, 'info');
+            
+            // Process each welcome
+            let joinedCount = 0;
+            for (const welcome of data.welcomes) {
+                const success = await processWelcome(welcome, session.token);
+                if (success) joinedCount++;
+            }
+            
+            // If any welcomes were processed successfully, refresh the groups list
+            if (joinedCount > 0) {
+                console.log(`✅ Successfully joined ${joinedCount} new groups`);
+                showNotification(`Joined ${joinedCount} new group(s)!`, 'success');
+                await loadUserGroups(session.user_id, session.token);
+            }
+        }
+    } catch (error) {
+        console.error('Error checking welcomes:', error);
+    }
+}
+
+// Enhanced processWelcome function
+async function processWelcome(welcome, token) {
+    try {
+        console.log('Processing welcome for group:', welcome.group_id);
+        
+        const response = await fetch('/api/welcomes/process', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                welcome_b64: welcome.welcome_b64,
+                group_id: welcome.group_id
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log(`✅ Successfully joined group: ${data.group_id}`);
+            
+            // Show a small toast notification for this group
+            showToast(`Joined new group!`, 'success');
+            
+            return true;
+        } else {
+            console.error('Failed to join group:', data.error);
+            showToast(`Failed to join group: ${data.error}`, 'error');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error processing welcome:', error);
+        return false;
+    }
+}
+
+// Toast notification function (smaller than notification)
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    
+    // Style the toast
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
+        color: white;
+        border-radius: 4px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;
+        animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
+        font-size: 14px;
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.remove();
+        }
+    }, 3000);
+}
+
+// Also check for welcomes when window gains focus (user returns to tab)
+window.addEventListener('focus', async () => {
+    const session = await loadSession();
+    if (session) {
+        console.log('🖥️ Window focused, checking for welcomes...');
+        await checkForPendingWelcomes();
+        await loadUserGroups(session.user_id, session.token);
+    }
+});
+
+// Add a manual refresh button to the groups section
+function addRefreshButton() {
+    const groupsSection = document.querySelector('.groups-section h3');
+    if (groupsSection && !document.getElementById('refresh-groups-btn')) {
+        const refreshBtn = document.createElement('button');
+        refreshBtn.id = 'refresh-groups-btn';
+        refreshBtn.innerHTML = '↻';
+        refreshBtn.title = 'Refresh groups';
+        refreshBtn.style.cssText = `
+            float: right;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #667eea;
+            padding: 0 5px;
+        `;
+        refreshBtn.onclick = async () => {
+            const session = await loadSession();
+            if (session) {
+                await checkForPendingWelcomes();
+                await loadUserGroups(session.user_id, session.token);
+            }
+        };
+        groupsSection.appendChild(refreshBtn);
+    }
+}
+
+// Call this after login
+function initializeUI() {
+    addRefreshButton();
+}
+
+#CSS
+/* Add to your style.css */
+
+/* Toast animations */
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+/* Toast styles */
+.toast {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    pointer-events: none;
+}
+
+.toast.success {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+}
+
+.toast.error {
+    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+}
+
+.toast.info {
+    background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+}
+
+/* Existing notification style update */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 15px 25px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    z-index: 1000;
+    animation: slideInRight 0.3s ease;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.notification.fade-out {
+    animation: fadeOut 0.3s ease forwards;
+}
+
+/* Group item hover animation */
+.group-item {
+    transition: all 0.3s ease;
+}
+
+.group-item:hover {
+    transform: translateX(5px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
+}
+
+/* New group badge animation */
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.new-group-badge {
+    display: inline-block;
+    background: #4CAF50;
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 8px;
+    animation: pulse 1s ease 3;
+}
+
+/* Loading indicator for groups */
+.groups-loading {
+    text-align: center;
+    padding: 20px;
+    color: #999;
+    font-style: italic;
+}
+
+.groups-loading::after {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin-left: 10px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Refresh button animation */
+#refresh-groups-btn {
+    transition: transform 0.3s ease;
+}
+
+#refresh-groups-btn:hover {
+    transform: rotate(180deg);
+}
+
+#refresh-groups-btn:active {
+    transform: rotate(180deg) scale(0.9);
+}
+
+/* Unread indicator for new groups */
+.group-item.unread {
+    border-left: 3px solid #4CAF50;
+    background: linear-gradient(to right, rgba(76, 175, 80, 0.05), white);
+}
+
+#html
+<div class="groups-section">
+    <h3>
+        Your Groups
+        <!-- Refresh button will be added here by JavaScript -->
+    </h3>
+    <div id="groups-list" class="groups-list">
+        <!-- Groups will be loaded here -->
+    </div>
+    <button class="create-group-btn" onclick="createGroupWithOnline()">
+        Create Group with Online Users
+    </button>
+</div>

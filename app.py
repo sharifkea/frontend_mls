@@ -5,21 +5,21 @@ from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
-import api_client  # Your existing API client
+import api_client
 from cryptography.fernet import Fernet
-import base64
 import base64
 import json
 import sys
 import time
 
 from create_keypakage import GeneratKeyPackage
-from test_message_enc import create_empty_group, add_member
-from api_client import save_epoch_secret_in_db
+from api_client import create_empty_group, add_member
+
 
 sys.path.insert(0, r"C:\Users\ronys\Documents\RUC\Thesis\frontend_mls\mls_stuff")
 
 from mls_stuff.MLS._key_package import KeyPackage
+from mls_stuff.MLS._welcome import Welcome
 
 load_dotenv()
 
@@ -37,46 +37,6 @@ active_sessions = {}  # user_id -> timestamp
 # Encryption for session data (optional but recommended)
 cipher = Fernet(Fernet.generate_key())
 
-@app.route('/api/crypto/generate-keypackage', methods=['POST'])
-def generate_keypackage():
-    """Generate a key package for a user (server-side crypto)"""
-    data = request.json
-    username = data.get('username')
-    user_id = session.get('user_id')
-    
-    if not user_id:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    if not username:
-        return jsonify({'error': 'Username required'}), 400
-    
-    try:
-        print(f"Generating key package for username: {username}")
-        
-        # IMPORTANT: Pass the username string, not user_id
-        # The GeneratKeyPackage function expects the username string
-        private_key, key_package_bytes = GeneratKeyPackage(username)  # Pass username, not user_id!
-        
-        # Store private key in server memory (encrypted in production!)
-        if user_id not in user_crypto_store:
-            user_crypto_store[user_id] = {}
-        
-        user_crypto_store[user_id]['private_key'] = private_key
-        user_crypto_store[user_id]['username'] = username
-        
-        print(f"Key package generated successfully for {username}")
-        
-        # Return public key package only
-        return jsonify({
-            'success': True,
-            'key_package': base64.b64encode(key_package_bytes).decode('ascii')
-        })
-        
-    except Exception as e:
-        print(f"Error generating key package: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crypto/create-empty-group', methods=['POST'])
 def create_empty_group_endpoint():
@@ -153,7 +113,6 @@ def login():
         
         # 2. Generate FRESH key package for this session
         print(f"Generating fresh key package for {username}...")
-        from create_keypakage import GeneratKeyPackage
         private_key, key_package_bytes = GeneratKeyPackage(username)
         
         # 3. Upload key package to backend database
@@ -303,11 +262,7 @@ def create_group_with_online():
     if len(online_users) < 1:
         print("⚠️ Warning: Creating group with only creator (no other users)")
     
-    try:
-        # STEP 1: Import required MLS functions
-        from test_message_enc import create_empty_group, add_member
-        from mls_stuff.MLS._key_package import KeyPackage
-        import base64
+    try:        
         
         # STEP 2: Get creator's key package from database (already generated at login)
         print("\n--- STEP 2: Getting creator's key package from DB ---")
@@ -373,23 +328,9 @@ def create_group_with_online():
             'epoch': group['epoch']
         }
         print(f"✅ Group state stored in crypto store for creator")
-        
-        # STEP 6: Add creator to group_members in database (leaf index 0)
-        #print("\n--- STEP 6: Adding creator to group_members ---")
-        #member_result = api_client.add_group_member(
-        #    group_id_b64, 
-        #    creator_id, 
-        #    0,  # Creator is always leaf index 0
-        #    token
-        #)
-        
-        #if 'error' in member_result:
-            #print(f"⚠️ Warning adding creator: {member_result['error']}")
-        #else:
-            #print(f"✅ Creator added to group_members")
-        
-        # STEP 7: Add each online user to the group
-        print("\n--- STEP 7: Adding online users to group ---")
+                
+        # STEP 6: Add each online user to the group
+        print("\n--- STEP 6: Adding online users to group ---")
         leaf_index = 1
         added_members = [creator_username]
         
@@ -409,6 +350,27 @@ def create_group_with_online():
             
             # Add to group (MLS operation)
             welcome = add_member(group, user_id, creator_private_key)
+            if welcome:
+                welcome_bytes = welcome.serialize()
+                
+                resp = api_client.insert_welcome(
+                    group_id_b64=group['group_id_b64'],     # original base64
+                    new_member_id=user_id,
+                    welcome_bytes=welcome_bytes,            # raw bytes
+                    token=token
+                )
+                print("Welcome delivery status:", resp)
+
+            #welcome = add_member(group, user_id, creator_private_key)
+            #welcome_bytes = welcome.serialize()
+            #the_b64_string = base64.b64encode(welcome_bytes).decode('utf-8')
+
+            # Send to backend to store welcome message for this user
+            # resp=api_client.insert_welcome(group_id_b64,new_member_id=user_id, welcome_b64=the_b64_string, token=token)
+            #print("Welcome delivery status:", resp.get("status"))
+
+           #welcome = Welcome.deserialize(bytearray(base64.b64decode(welcome_bytes)))
+            #print(welcome)
             print(f"  - MLS add_member completed, new epoch: {group['epoch']}")
             
             # Add to database
@@ -439,8 +401,8 @@ def create_group_with_online():
             
             leaf_index += 1
         
-        # STEP 8: Update epoch in database
-        print("\n--- STEP 8: Updating group epoch in database ---")
+        # STEP 7: Update epoch in database
+        print("\n--- STEP 7: Updating group epoch in database ---")
         if (api_client.update_group_epoch(
             group_id_b64,
             group['epoch'],
@@ -452,10 +414,8 @@ def create_group_with_online():
         else:
             print(f"⚠️ Failed to update epoch: {group['epoch']} in database")
        
-            
-        
-        # STEP 9: Final verification
-        print("\n--- STEP 9: Verifying database entries ---")
+        # STEP 8: Final verification
+        print("\n--- STEP 8: Verifying database entries ---")
         final_members = api_client.get_group_members(group_id_b64, token)
         
         if 'error' not in final_members:
@@ -481,7 +441,126 @@ def create_group_with_online():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/groups', methods=['GET'])
+def get_user_groups():
+    """Get all groups for the current user"""
+    user_id = session.get('user_id')
+    token = session.get('token')
+    
+    print(f"\n🔍 GET USER GROUPS - User: {user_id}")
+    
+    if not user_id or not token:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        # Call your FastAPI backend to get groups
+        
+        groups_data = api_client.get_my_groups(token)
+        
+        if 'error' in groups_data:
+            return jsonify({'error': groups_data['error']}), 400
+        
+        # Enhance group data with information from your crypto store
+        groups = groups_data.get('groups', [])
+        enhanced_groups = []
+        
+        for group in groups:
+            print(f"Group Name: {group.get('group_name')}")
+            group_id = group.get('group_id')
+            
+            # Add crypto info if available in user_crypto_store
+            crypto_info = {}
+            if user_id in user_crypto_store and 'groups' in user_crypto_store[user_id]:
+                if group_id in user_crypto_store[user_id]['groups']:
+                    crypto_info = {
+                        'has_keys': True,
+                        'epoch': user_crypto_store[user_id]['groups'][group_id].get('epoch')
+                    }
+            
+            enhanced_groups.append({
+                **group,
+                **crypto_info
+            })
+        
+        return jsonify({
+            'success': True,
+            'groups': enhanced_groups
+        })
+        
+    except Exception as e:
+        print(f"❌ Error getting user groups: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
+@app.route('/api/welcomes/pending', methods=['GET'])
+def get_pending_welcomes():
+    """Get all pending welcome messages for the current user"""
+    user_id = session.get('user_id')
+    token = session.get('token')
+    
+    if not user_id or not token:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        # Call FastAPI to get pending welcomes
+        welcomes_data = api_client.get_pending_welcomes(token)
+        
+        if 'error' in welcomes_data:
+            return jsonify({'error': welcomes_data['error']}), 400
+        
+        return jsonify({
+            'success': True,
+            'welcomes': welcomes_data.get('welcomes', [])
+        })
+        
+    except Exception as e:
+        print(f"❌ Error fetching pending welcomes: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+
+@app.route('/api/welcomes/process', methods=['POST'])
+def process_welcome():
+    """Process a welcome message and join a group"""
+    data = request.json
+    welcome_b64 = data.get('welcome_b64')
+    group_id_b64 = data.get('group_id')
+    
+    user_id = session.get('user_id')
+    username = session.get('username')
+    
+    if not user_id or not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    # Get the private key from user_crypto_store
+    if user_id not in user_crypto_store or 'private_key' not in user_crypto_store[user_id]:
+        return jsonify({'error': 'No private key found. Please login again.'}), 400
+    
+    private_key = user_crypto_store[user_id]['private_key']
+    
+    try:
+        # Call the processing function and PASS the private key
+        result = api_client.process_single_welcome(
+            private_key=private_key,  # ← Pass the stored key!
+            welcome_b64=welcome_b64,
+            group_id_b64=group_id_b64,
+            token=session.get('token')
+        )
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 400
+        
+        # Mark welcome as delivered (optional)
+        # You might want to call an endpoint to mark it as delivered
+        
+        return jsonify({
+            'success': True,
+            'group_id': group_id_b64,
+            'message': 'Successfully joined group'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error processing welcome: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/debug/active-sessions', methods=['GET'])
 def debug_active_sessions():
