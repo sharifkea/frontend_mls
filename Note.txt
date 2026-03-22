@@ -6,27 +6,26 @@ pip install -r requirements.txt
 
 python app.py
 
-Failed to create group: 'CipherSuite' object has no attribute 'aead'
-❌ ERROR creating group: 'CipherSuite' object has no attribute 'aead'
-Traceback (most recent call last):
-  File "C:\Users\ronys\Documents\RUC\Thesis\Frontend_mls\app.py", line 392, in create_group_with_online
-    welcome = add_member(group, user_id, creator_private_key)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\ronys\Documents\RUC\Thesis\Frontend_mls\api_client.py", line 782, in add_member
-    nonce_label = KDFLabel(cs.aead.nonce_size, b"nonce")
-                           ^^^^^^^
-AttributeError: 'CipherSuite' object has no attribute 'aead'
+//startWelcomePolling()
 
-#base64 to raw_bytes.hex
-import base64
 
-base64_id = "sq6pUJypElsQCo6pjVnSSw=="
 
-# 1. Decode Base64 to raw bytes
-raw_bytes = base64.b64decode(base64_id)
 
-# 2. Convert bytes to Hex (uppercase)
-hex_id = raw_bytes.hex().upper()
 
-print(hex_id) 
-# Output: B2AEA9509CA9125B100A8EA98D59D24B
+at checkForPendingWelcomes() in app.js calls
+'/api/welcomes/pending' from app.py
+get_pending_welcomes()
+get_pending_welcomes()
+@app.get("/pending-welcomes")
+
+
+processWelcome()
+'/api/welcomes/process'
+process_single_welcome()
+
+
+
+
+
+'/api/welcomes/pending' from app.py
+loadUserGroups() 

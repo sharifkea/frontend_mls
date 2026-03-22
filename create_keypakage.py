@@ -60,13 +60,7 @@ def get_x25519_pub_bytes():
     print(f"Raw private key length: {len(priv_bytes)} bytes")
     print(f"Raw public key length : {len(pub_bytes)} bytes\n")
 
-    # Wrap into KeyPair (this is what MLS will expect for init_key)
-    kp = KeyPair(
-        key_type=KeyType.X25519,
-        private_key=priv_bytes,
-        public_key=pub_bytes
-    )
-    return kp.public
+    return priv_bytes, pub_bytes
 
 
 
@@ -82,9 +76,10 @@ def GeneratKeyPackage(user_id: str):
     # 1. Load keys
     ed25519_priv_bytes, ed25519_pub_bytes = get_ed25519_keys()
     print(f"{user_id}s private Key (hex): {ed25519_priv_bytes.hex()}\n")
-    x25519_pub_bytes = get_x25519_pub_bytes()
-
-    # Convert user_id to string if it's not already
+    
+    x25519_priv_bytes, x25519_pub_bytes = get_x25519_pub_bytes()
+    print(f"X25519 init private key (first 16): {x25519_priv_bytes[:16].hex()}...")
+    # 3. Create credential
     if isinstance(user_id, bytes):
         user_id_str = user_id.decode('utf-8')
     else:
@@ -92,9 +87,9 @@ def GeneratKeyPackage(user_id: str):
     identity_vl = VLBytes(bytes(user_id_str, "utf-8") + b"@example.com")
     credential = BasicCredential(credential_type=CredentialType.basic, identity=identity_vl)
 
-    # 3. Key wrappers
-    hpke_pub = HPKEPublicKey(x25519_pub_bytes)
-    sig_pub  = SignaturePublicKey(ed25519_pub_bytes)
+    # 4. Key wrappers
+    hpke_pub = HPKEPublicKey(x25519_pub_bytes)  # ← Using X25519 public key
+    sig_pub = SignaturePublicKey(ed25519_pub_bytes)
 
     # 4. Capabilities
     caps = Capabilities(
@@ -156,5 +151,5 @@ def GeneratKeyPackage(user_id: str):
     kp_bytes = key_package.serialize()
     print(f"Full serialized KeyPackage length: {len(kp_bytes)} bytes")
     print("First 32 bytes (hex):", kp_bytes[:32].hex())
-    return ed25519_priv_bytes, kp_bytes
+    return ed25519_priv_bytes, x25519_priv_bytes, kp_bytes
    

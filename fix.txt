@@ -1,252 +1,4 @@
-#app.py
-
-@app.route('/api/welcomes/pending', methods=['GET'])
-def get_pending_welcomes():
-    """Get all pending welcome messages for the current user"""
-    user_id = session.get('user_id')
-    token = session.get('token')
-    
-    if not user_id or not token:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    try:
-        # Call FastAPI to get pending welcomes
-        welcomes_data = api_client.get_pending_welcomes(token)
-        
-        if 'error' in welcomes_data:
-            return jsonify({'error': welcomes_data['error']}), 400
-        
-        return jsonify({
-            'success': True,
-            'welcomes': welcomes_data.get('welcomes', [])
-        })
-        
-    except Exception as e:
-        print(f"❌ Error fetching pending welcomes: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/welcomes/process', methods=['POST'])
-def process_welcome():
-    """Process a welcome message and join a group"""
-    data = request.json
-    welcome_b64 = data.get('welcome_b64')
-    group_id_b64 = data.get('group_id')
-    
-    user_id = session.get('user_id')
-    username = session.get('username')
-    
-    if not user_id or not username:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    # Get the private key from user_crypto_store
-    if user_id not in user_crypto_store or 'private_key' not in user_crypto_store[user_id]:
-        return jsonify({'error': 'No private key found. Please login again.'}), 400
-    
-    private_key = user_crypto_store[user_id]['private_key']
-    
-    try:
-        # Call the processing function and PASS the private key
-        result = api_client.process_single_welcome(
-            private_key=private_key,  # ← Pass the stored key!
-            welcome_b64=welcome_b64,
-            group_id_b64=group_id_b64,
-            token=session.get('token')
-        )
-        
-        if 'error' in result:
-            return jsonify({'error': result['error']}), 400
-        
-        # Mark welcome as delivered (optional)
-        # You might want to call an endpoint to mark it as delivered
-        
-        return jsonify({
-            'success': True,
-            'group_id': group_id_b64,
-            'message': 'Successfully joined group'
-        })
-        
-    except Exception as e:
-        print(f"❌ Error processing welcome: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
-
-
-#in api_client
-def process_single_welcome(private_key: bytes, welcome_b64: str, group_id_b64: str, token: str):
-    """Process a single welcome message and join the group using provided private key"""
-    try:
-        import base64
-        from mls_stuff.MLS._welcome import Welcome
-        from cryp_hpke import simple_hpke_open
-        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-        
-        # Decode welcome
-        welcome_bytes = base64.b64decode(welcome_b64)
-        welcome = Welcome.deserialize(bytearray(welcome_bytes))
-        
-        # Create private key object
-        skR = X25519PrivateKey.from_private_bytes(private_key)
-        
-        # Decrypt GroupSecrets (first secret should be for this user)
-        encrypted = welcome.secrets[0].encrypted_group_secrets
-        kem_output = encrypted.kem_output.data
-        ciphertext = encrypted.ciphertext.data
-        
-        group_secrets_bytes = simple_hpke_open(
-            skR,
-            b"MLS 1.0 external init secret",
-            kem_output,
-            ciphertext
-        )
-        
-        from mls_stuff.Crypto import GroupSecrets
-        group_secrets = GroupSecrets.deserialize(group_secrets_bytes)
-        print(f"✅ Group secrets decrypted")
-        
-        # 4. Decrypt the GroupInfo using the joiner_secret
-        
-        # This is a simplified version - adjust based on your library
-        group_info_bytes = welcome.decrypt_group_info(
-            joiner_secret=group_secrets.joiner_secret.data,
-            psk_secret=bytes(32)  # No PSK for now
-        )
-        
-        group_info = GroupInfo.deserialize(group_info_bytes)
-        print(f"✅ Group info decrypted")
-        
-        # 5. Reconstruct the group state
-        group_context = group_info.group_context
-        group_id = group_context.group_id.data
-        
-        # Create a new ratchet tree
-        tree = RatchetTree()
-        # You need to populate the tree from the group info
-        # This depends on your library's serialization
-        
-        # 6. Store the group state in user_crypto_store
-        # This would be in your Flask app's memory or database
-        
-        # For now, return the group info
-        #return {'success': True, 'group_id_b64': group_id_b64}
-        return {
-            'success': True,
-            'group_id_b64': group_id_b64,
-            'epoch': group_context.epoch,
-            'group_name': f"Group {group_id.hex()[:8]}"
-        }
-        
-    except Exception as e:
-        print(f"❌ Error processing welcome: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return {"error": str(e)}
-
 #app.js
-// Add these variables at the top of your app.js
-let welcomeCheckInterval = null;
-let isCheckingWelcomes = false;
-
-// Update your handleLogin function
-async function handleLogin() {
-    const username = document.getElementById('login-username').value;
-    const password = document.getElementById('login-password').value;
-    const errorDiv = document.getElementById('login-error');
-    
-    if (!username || !password) {
-        errorDiv.textContent = 'Username and password required';
-        return;
-    }
-    
-    try {
-        console.log('Logging in...');
-        const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-        
-        const data = await response.json();
-        console.log('Login response:', data);
-        
-        if (!response.ok) {
-            errorDiv.textContent = data.error || 'Login failed';
-            return;
-        }
-        
-        if (data.error) {
-            errorDiv.textContent = data.error;
-        } else {
-            // Save session
-            await saveSession(data.user_id, data.token, data.username);
-            
-            // Show main app
-            document.getElementById('auth-container').style.display = 'none';
-            document.getElementById('app-container').style.display = 'block';
-            document.getElementById('user-display').textContent = data.username;
-            
-            // ===== INITIALIZE UI COMPONENTS =====
-            initializeUI(); 
-            
-            // Load user's groups
-            await loadUserGroups(data.user_id, data.token);
-            
-            // CHECK FOR PENDING WELCOMES AFTER LOGIN
-            await checkForPendingWelcomes();
-            
-            // START PERIODIC WELCOME CHECKING (every 30 seconds)
-            startWelcomePolling();
-        }
-    } catch (error) {
-        console.error('Login error:', error);
-        errorDiv.textContent = 'Network error';
-    }
-}
-
-// Update handleLogout to stop polling
-async function handleLogout() {
-    // Stop welcome polling
-    stopWelcomePolling();
-    
-    await clearSession();
-    
-    document.getElementById('auth-container').style.display = 'block';
-    document.getElementById('app-container').style.display = 'none';
-    document.getElementById('login-username').value = '';
-    document.getElementById('login-password').value = '';
-    document.getElementById('login-error').textContent = '';
-}
-
-// Start periodic welcome checking
-function startWelcomePolling(intervalSeconds = 30) {
-    if (welcomeCheckInterval) {
-        clearInterval(welcomeCheckInterval);
-    }
-    
-    console.log(`🕒 Starting welcome polling every ${intervalSeconds} seconds`);
-    welcomeCheckInterval = setInterval(async () => {
-        if (!isCheckingWelcomes) {
-            isCheckingWelcomes = true;
-            try {
-                await checkForPendingWelcomes();
-            } catch (error) {
-                console.error('Error in welcome polling:', error);
-            } finally {
-                isCheckingWelcomes = false;
-            }
-        }
-    }, intervalSeconds * 1000);
-}
-
-// Stop welcome polling
-function stopWelcomePolling() {
-    if (welcomeCheckInterval) {
-        clearInterval(welcomeCheckInterval);
-        welcomeCheckInterval = null;
-        console.log('🛑 Stopped welcome polling');
-    }
-}
-
 // Enhanced checkForPendingWelcomes function
 async function checkForPendingWelcomes() {
     const session = await loadSession();
@@ -274,8 +26,11 @@ async function checkForPendingWelcomes() {
             // Process each welcome
             let joinedCount = 0;
             for (const welcome of data.welcomes) {
-                const success = await processWelcome(welcome, session.token);
-                if (success) joinedCount++;
+                console.log(`Youe new welcome id: ${welcome.id}`);
+                if(welcome.id){
+                    const success = await processWelcome(welcome, session.token);
+                    if (success) joinedCount++;
+                }
             }
             
             // If any welcomes were processed successfully, refresh the groups list
@@ -290,7 +45,6 @@ async function checkForPendingWelcomes() {
     }
 }
 
-// Enhanced processWelcome function
 async function processWelcome(welcome, token) {
     try {
         console.log('Processing welcome for group:', welcome.group_id);
@@ -303,7 +57,8 @@ async function processWelcome(welcome, token) {
             },
             body: JSON.stringify({
                 welcome_b64: welcome.welcome_b64,
-                group_id: welcome.group_id
+                group_id: welcome.group_id,
+                welcome_id: welcome.id
             })
         });
         
@@ -314,6 +69,11 @@ async function processWelcome(welcome, token) {
             
             // Show a small toast notification for this group
             showToast(`Joined new group!`, 'success');
+            // Refresh group list
+            const session = await loadSession();
+            if (session) {
+                await loadUserGroups(session.userId, session.token);
+            }
             
             return true;
         } else {
@@ -327,229 +87,317 @@ async function processWelcome(welcome, token) {
     }
 }
 
-// Toast notification function (smaller than notification)
-function showToast(message, type = 'info') {
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
+#app.py
+@app.route('/api/welcomes/pending', methods=['GET'])
+def get_pending_welcomes():
+    """Get all pending welcome messages for the current user"""
+    user_id = session.get('user_id')
+    token = session.get('token')
     
-    // Style the toast
-    toast.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        padding: 12px 20px;
-        background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
-        color: white;
-        border-radius: 4px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        z-index: 1000;
-        animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
-        font-size: 14px;
-    `;
+    if not user_id or not token:
+        return jsonify({'error': 'Not authenticated'}), 401
     
-    document.body.appendChild(toast);
+    try:
+        # Call FastAPI to get pending welcomes
+        welcomes_data = api_client.get_pending_welcomes(token)
+        
+        if 'error' in welcomes_data:
+            return jsonify({'error': welcomes_data['error']}), 400
+        
+        welcomes= welcomes_data.get('welcomes', [])
+        
+        for welcome in welcomes:
+            print("------------------------------")
+            print(f"Welcome ID:{welcome.get("id")}")
+            print("------------------------------")
+
+        return jsonify({
+            'success': True,
+            'welcomes': welcomes
+        })
+        
+    except Exception as e:
+        print(f"❌ Error fetching pending welcomes: {str(e)}")
+        return jsonify({'error': str(e)}), 500
     
-    // Remove after 3 seconds
-    setTimeout(() => {
-        if (toast.parentNode) {
-            toast.remove();
-        }
-    }, 3000);
-}
 
-// Also check for welcomes when window gains focus (user returns to tab)
-window.addEventListener('focus', async () => {
-    const session = await loadSession();
-    if (session) {
-        console.log('🖥️ Window focused, checking for welcomes...');
-        await checkForPendingWelcomes();
-        await loadUserGroups(session.user_id, session.token);
-    }
-});
+@app.route('/api/welcomes/process', methods=['POST'])
+def process_welcome():
+    """Process a welcome message and join a group"""
+    print("\n" + "="*60)
+    print("PROCESS WELCOME ENDPOINT CALLED")
+    print("="*60)
+    
+    # DEBUG: Check global user_crypto_store
+    print(f"🔍 Global user_crypto_store: {user_crypto_store}")
+    print(f"🔍 Global user_crypto_store type: {type(user_crypto_store)}")
+    print(f"🔍 Global user_crypto_store keys: {list(user_crypto_store.keys()) if user_crypto_store else 'Empty'}")
+    
+    data = request.json
+    print(f"📦 Request data: {data}")
+    
+    welcome_b64 = data.get('welcome_b64')
+    group_id_b64 = data.get('group_id')
+    welcome_id = data.get('welcome_id')
+    
 
-// Add a manual refresh button to the groups section
-function addRefreshButton() {
-    const groupsSection = document.querySelector('.groups-section h3');
-    if (groupsSection && !document.getElementById('refresh-groups-btn')) {
-        const refreshBtn = document.createElement('button');
-        refreshBtn.id = 'refresh-groups-btn';
-        refreshBtn.innerHTML = '↻';
-        refreshBtn.title = 'Refresh groups';
-        refreshBtn.style.cssText = `
-            float: right;
-            background: none;
-            border: none;
-            font-size: 18px;
-            cursor: pointer;
-            color: #667eea;
-            padding: 0 5px;
-        `;
-        refreshBtn.onclick = async () => {
-            const session = await loadSession();
-            if (session) {
-                await checkForPendingWelcomes();
-                await loadUserGroups(session.user_id, session.token);
-            }
-        };
-        groupsSection.appendChild(refreshBtn);
-    }
-}
+    
+    print(f"📦 Extracted - welcome_b64 length: {len(welcome_b64) if welcome_b64 else 0}")
+    print(f"📦 Extracted - group_id_b64: {group_id_b64}")
+    print("------------------------------")
+    print(f"Welcome ID:{welcome_id}")
+    print("------------------------------")
 
-// Call this after login
-function initializeUI() {
-    addRefreshButton();
-}
+    
+    if not welcome_b64 or not group_id_b64 :
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    # Get user info from session
+    user_id = session.get('user_id')
+    username = session.get('username')
+    
+    print(f"👤 Session user_id: {user_id}")
+    print(f"👤 Session username: {username}")
+    
+    if not user_id or not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    # DEBUG: Check user_crypto_store for this user
+    print(f"🔍 user_id in user_crypto_store? {user_id in user_crypto_store}")
+    
+    if user_id in user_crypto_store:
+        print(f"🔍 user_crypto_store[user_id] keys: {list(user_crypto_store[user_id].keys())}")
+        
+        if 'keys' in user_crypto_store[user_id]:
+            print(f"🔍 Available key refs: {list(user_crypto_store[user_id]['keys'].keys())}")
+        
+        # 1. Decode welcome
+        welcome_bytes = base64.b64decode(welcome_b64)
+        #welcome = Welcome.deserialize(bytearray(welcome_bytes))
+        welcome_bytearray = bytearray(welcome_bytes)
 
-#CSS
-/* Add to your style.css */
+        print(f"Received bytes first 16: {bytes(welcome_bytearray[:16]).hex()}   (len={len(welcome_bytes)})")
 
-/* Toast animations */
-@keyframes slideInRight {
-    from {
-        transform: translateX(100%);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
+        try:
+            # Step 1: Try to parse as MLSMessage (most likely case)
+            mls_msg = MLSMessage.deserialize(welcome_bytearray)
+            
+            print(f"Parsed as MLSMessage, wire_format={mls_msg.wire_format}")
+            
+            if hasattr(mls_msg, 'msg_content') and isinstance(mls_msg.msg_content, Welcome):
+                welcome = mls_msg.msg_content
+                print("→ Extracted Welcome from MLSMessage")
+            else:
+                print("→ MLSMessage content is not a Welcome → fallback")
+                raise ValueError("Not a Welcome inside MLSMessage")
+                
+        except Exception as e:
+            print(f"MLSMessage parse failed: {str(e)} → trying direct Welcome")
+            try:
+                welcome = Welcome.deserialize(welcome_bytearray)
+                print("→ Parsed directly as Welcome (unexpected)")
+            except Exception as e2:
+                return {"error": f"Cannot parse welcome: {str(e)} | {str(e2)}"}
+            
+        print(f"  Welcome deserialized ({len(welcome_bytes)} bytes, {len(welcome.secrets)} secrets)")
+        
+        if not welcome.secrets:
+            print("❌ No secrets found in welcome message")
+            return {"error": "No secrets in welcome"}
+        
+        # 2. Get the first encrypted secret
+        encrypted_secret = welcome.secrets[0]
+        print("  First encrypted secret details:")
+        
+        # 3. Extract the key package reference from the secret
+        key_package_ref = encrypted_secret.new_member.to_bytes().hex()
+            
+        if key_package_ref in user_crypto_store[user_id]['keys']:
+            print(f"✅ Key found for ref {key_package_ref[:16]}...")
+            private_key = user_crypto_store[user_id]['keys'][key_package_ref]['init_priv']
+            print(f"✅ Private key length: {len(private_key)}")
+        else:
+            print(f"❌ Key {key_package_ref[:16]}... NOT FOUND in stored keys")
+        
+    else:
+        print(f"❌ User {user_id} not found in user_crypto_store")
+ 
+    token = session.get('token')
+    user_id = session.get('user_id')
+    username = session.get('username')
+    print(f"User {username} ({user_id}) is processing welcome for group {group_id_b64}")
+    print(f"Welcome message size: {len(welcome_b64) if welcome_b64 else 'N/A'} bytes")
+    
+    if not user_id or not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        # Call the processing function and PASS the private key
+        result = api_client.process_single_welcome(
+            private_key=private_key,  # ← Pass the stored key!
+            welcome_b64=welcome_b64,
+            group_id_b64=group_id_b64
+        )
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 400
 
-@keyframes fadeOut {
-    from {
-        opacity: 1;
-    }
-    to {
-        opacity: 0;
-    }
-}
+        # Now we have crypto success → enrich with tree info
+        group_state = result['group_state_crypto']
+        group_info = result['group_info']
 
-/* Toast styles */
-.toast {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    pointer-events: none;
-}
+         # 2. Get additional group details (including last_epoch from database)
+        # Call FastAPI's /groups/{group_id} endpoint to get full group details
+        group_details = api_client.get_group_details(group_id_b64, token)
+        
+        if 'error' in group_details:
+            return jsonify({'error': 'Failed to fetch Group Detailss'}), 500
+            
+        # ────────────────────────────────────────────────
+        # 3. Fetch group members to get MY leaf index
+        # ────────────────────────────────────────────────
+        members_data = api_client.get_group_members(group_id_b64, token)
+        if 'error' in members_data:
+            return jsonify({'error': f"Cannot fetch members: {members_data['error']}"}), 500
 
-.toast.success {
-    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-}
+        members = members_data.get('members', [])
 
-.toast.error {
-    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
-}
+        if not members:
+            return jsonify({'error': 'Group has no members (impossible)'}), 500
+        
+        # Get the count
+        member_count = len(members)
 
-.toast.info {
-    background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
-}
+        # Find your own leaf index
+        my_leaf_index = None
+        for member in members:
+            if member.get('user_id') == user_id:
+                my_leaf_index = member.get('leaf_index')
+                break
 
-/* Existing notification style update */
-.notification {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    padding: 15px 25px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border-radius: 8px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    z-index: 1000;
-    animation: slideInRight 0.3s ease;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
+        if my_leaf_index is None:
+            return jsonify({'error': 'Your user_id not found in group members'}), 500
 
-.notification.fade-out {
-    animation: fadeOut 0.3s ease forwards;
-}
+        print(f"   My leaf index = {my_leaf_index}")
+        
+        group_state['group_last_epoch'] = group_details.get('last_epoch')
+        group_state['member_count'] = member_count
+        group_state['my_leaf_index'] = my_leaf_index
 
-/* Group item hover animation */
-.group-item {
-    transition: all 0.3s ease;
-}
+        # Reconstruct / load ratchet tree (prefer extension, fallback to DB)
+        # ────────────────────────────────────────────────
+        tree = None
 
-.group-item:hover {
-    transform: translateX(5px);
-    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
-}
+        # First: try to get tree from GroupInfo extension (most accurate)
+        if hasattr(group_info, 'extensions') and group_info.extensions:
+            for ext in group_info.extensions:
+                if ext.extension_type == ExtensionType.ratchet_tree:
+                    tree_data = bytes(ext.extension_data.data)
+                    try:
+                        tree = RatchetTree.deserialize(bytearray(tree_data))
+                        print(f"✅ Ratchet tree loaded from GroupInfo extension ({len(tree_data)} bytes)")
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Failed to deserialize ratchet_tree extension: {e}")
 
-/* New group badge animation */
-@keyframes pulse {
-    0% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.05);
-    }
-    100% {
-        transform: scale(1);
-    }
-}
+        # Fallback: build minimal tree from known members & my position
+        if tree is None:
+            print("   No usable ratchet_tree extension → building from group members")
+            
+            # We already have members_data and my_leaf_index from earlier
+            max_leaf = max((m.get('leaf_index', 0) for m in members), default=0)
+            required_leaves = max(len(members), my_leaf_index + 1)
 
-.new-group-badge {
-    display: inline-block;
-    background: #4CAF50;
-    color: white;
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 10px;
-    margin-left: 8px;
-    animation: pulse 1s ease 3;
-}
+            tree = RatchetTree()
+            tree.root = RatchetNode()  # must have root
 
-/* Loading indicator for groups */
-.groups-loading {
-    text-align: center;
-    padding: 20px;
-    color: #999;
-    font-style: italic;
-}
+            # Extend until large enough
+            while len(tree.leaves) < required_leaves:
+                tree.extend()
 
-.groups-loading::after {
-    content: '';
-    display: inline-block;
-    width: 20px;
-    height: 20px;
-    margin-left: 10px;
-    border: 2px solid #f3f3f3;
-    border-top: 2px solid #667eea;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
+            # Mark your own leaf (placeholder)
+            if my_leaf_index < len(tree.leaves):
+                tree[my_leaf_index] = RatchetNode()  # or minimal LeafNode
 
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
+            print(f"   Built fallback tree: {len(tree.leaves)} leaves, your index: {my_leaf_index}")
 
-/* Refresh button animation */
-#refresh-groups-btn {
-    transition: transform 0.3s ease;
-}
+            pass
+        
+        # For each member, fetch their key package and extract leaf node
+        for member in members:
+            member_user_id = member['user_id']  # NOT user_id
+            leaf_index = member['leaf_index']
+            
+            kp_bytes = api_client.get_latest_keypackage(member_user_id)
+            if kp_bytes:
+                key_package = KeyPackage.deserialize(bytearray(kp_bytes))
+                leaf_node = key_package.content.leaf_node
+                tree[leaf_index] = leaf_node
+                print(f"  Added leaf {leaf_index} for {member['username']}")
 
-#refresh-groups-btn:hover {
-    transform: rotate(180deg);
-}
+        # Serialize tree for storage
+        tree_serialized = tree.serialize()
+        tree_b64 = base64.b64encode(tree_serialized).decode('ascii')
 
-#refresh-groups-btn:active {
-    transform: rotate(180deg) scale(0.9);
-}
+        # Add to group_state
+        group_state['tree'] = tree
+        group_state['tree_serialized'] = tree_b64
+        group_state['my_leaf_index'] = my_leaf_index
+        group_state['member_count'] = member_count
+        # Optional: store serialized version if you ever want persistence
+        # group_state['tree_serialized'] = base64.b64encode(tree.serialize()).decode('ascii')
 
-/* Unread indicator for new groups */
-.group-item.unread {
-    border-left: 3px solid #4CAF50;
-    background: linear-gradient(to right, rgba(76, 175, 80, 0.05), white);
-}
+        # ────────────────────────────────────────────────
+        # Final storage
+        # ────────────────────────────────────────────────
+        if user_id not in user_crypto_store:
+            user_crypto_store[user_id] = {}
+        if 'groups' not in user_crypto_store[user_id]:
+            user_crypto_store[user_id]['groups'] = {}
 
-#html
-<div class="groups-section">
-    <h3>
-        Your Groups
-        <!-- Refresh button will be added here by JavaScript -->
-    </h3>
-    <div id="groups-list" class="groups-list">
-        <!-- Groups will be loaded here -->
-    </div>
-    <button class="create-group-btn" onclick="createGroupWithOnline()">
-        Create Group with Online Users
-    </button>
-</div>
+        user_crypto_store[user_id]['groups'][group_id_b64] = group_state
+        print(f"--------------------{welcome_id}")
+        response=api_client.mark_welcome_delivered(welcome_id, token)
+        # 1. Check if the 'status' key exists
+        if response.get("status") == "delivered":
+            print(f"Welcome delivered set True")
+        else:
+            # 2. If it's not 'delivered', raise an error manually
+            # This catches {"status": "error"} or even empty responses
+            actual_status = response.get("status", "Unknown Error")
+            raise ValueError(f"API failed to deliver. Expected 'delivered', got: {actual_status}")
+        
+        return jsonify({
+            'success': True,
+            'group_id': group_id_b64,
+            'epoch': group_state['epoch'],
+            'my_leaf_index': my_leaf_index,
+            'message': 'Successfully joined group with tree'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error processing welcome: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+#api_client
+def get_pending_welcomes(token: str):
+    """Get pending welcome messages for the current user from FastAPI"""
+    try:
+        print(f"📡 Fetching pending welcomes from FastAPI...")
+        
+        response = requests.get(
+            f"{BASE_URL}/pending-welcomes",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"✅ Retrieved {len(data.get('welcomes', []))} pending welcomes")
+            return data
+        else:
+            print(f"❌ Failed to get welcomes: {response.status_code}")
+            return {"error": f"HTTP {response.status_code}", "welcomes": []}

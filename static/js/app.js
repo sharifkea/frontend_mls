@@ -189,7 +189,7 @@ async function handleLogin() {
             await checkForPendingWelcomes();
             
             // START PERIODIC WELCOME CHECKING (every 30 seconds)
-            startWelcomePolling();
+            //startWelcomePolling();
         }
     } catch (error) {
         console.error('Login error:', error);
@@ -233,83 +233,6 @@ async function handleLogout() {
     document.getElementById('login-error').textContent = '';
 }
 
-
-// Create new group
-async function createGroup() {
-    const session = await loadSession();
-    if (!session) {
-        alert('Please login first');
-        return;
-    }
-    
-    const groupName = prompt('Enter group name:', 'New Group');
-    if (!groupName) return;
-    
-    try {
-        // First, generate key package if needed
-        if (!sessionStorage.getItem('hasKeyPackage')) {
-            console.log('Generating key package for user...', session.username);
-            await generateUserKeyPackage(session.username);
-        }
-        
-        // Get the key package (in real app, you'd store it)
-        const keyPackageResponse = await fetch('/api/crypto/generate-keypackage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: session.username })
-        });
-        
-        const keyPackageData = await keyPackageResponse.json();
-        
-        if (!keyPackageData.success) {
-            alert('Failed to get key package');
-            return;
-        }
-        
-        // Create group on server
-        const groupResponse = await fetch('/api/crypto/create-empty-group', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                username: session.username,
-                key_package: keyPackageData.key_package
-            })
-        });
-        
-        const groupData = await groupResponse.json();
-        
-        if (!groupData.success) {
-            alert('Failed to create group: ' + groupData.error);
-            return;
-        }
-        
-        // Save group metadata to database
-        const saveResponse = await fetch('/api/groups', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${session.token}`
-            },
-            body: JSON.stringify({
-                group_name: groupName,
-                group_id: groupData.group_id,
-                cipher_suite: 1
-            })
-        });
-        
-        const saveData = await saveResponse.json();
-        
-        if (saveData.error) {
-            alert('Error saving group: ' + saveData.error);
-        } else {
-            alert(`Group "${groupName}" created successfully!`);
-            loadUserGroups(session.userId, session.token);
-        }
-    } catch (error) {
-        alert('Error creating group: ' + error.message);
-        console.error(error);
-    }
-}
 
 // Load user's groups
 async function loadUserGroups(userId, token) {
@@ -683,8 +606,20 @@ async function checkForPendingWelcomes() {
             // Process each welcome
             let joinedCount = 0;
             for (const welcome of data.welcomes) {
-                const success = await processWelcome(welcome, session.token);
-                if (success) joinedCount++;
+                // Debug: See what Alice is actually getting
+                console.log("Current welcome data:", welcome); 
+                
+                // Ensure we have an ID before trying to process
+                const idToUse = welcome.id || welcome.welcome_id; 
+                
+                if (idToUse) {
+                    // Ensure the object passed to processWelcome HAS the id property
+                    welcome.id = idToUse; 
+                    const success = await processWelcome(welcome, session.token);
+                    if (success) joinedCount++;
+                } else {
+                    console.error("Skipping welcome: No ID found in object", welcome);
+                }
             }
             
             // If any welcomes were processed successfully, refresh the groups list
@@ -712,7 +647,8 @@ async function processWelcome(welcome, token) {
             },
             body: JSON.stringify({
                 welcome_b64: welcome.welcome_b64,
-                group_id: welcome.group_id
+                group_id: welcome.group_id,
+                welcome_id: welcome.id
             })
         });
         
