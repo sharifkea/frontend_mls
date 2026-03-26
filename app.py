@@ -1,5 +1,5 @@
 # app.py
-import uuid, os, time, sys, json, base64, api_client, create_keypakage
+import uuid, os, time, sys, json, base64, api_client, create_keypakage,secrets
 
 from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
@@ -36,30 +36,6 @@ active_sessions = {}  # user_id -> timestamp
 # Encryption for session data (optional but recommended)
 cipher = Fernet(Fernet.generate_key())
 
-
-@app.route('/api/crypto/create-empty-group', methods=['POST'])
-def create_empty_group_endpoint():
-    """Create an empty group (server-side crypto)"""
-    data = request.json
-    username = data.get('username')
-    key_package_b64 = data.get('key_package')
-    
-    # Decode key package
-    key_package_bytes = base64.b64decode(key_package_b64)
-    key_package = KeyPackage.deserialize(bytearray(key_package_bytes))
-    leaf_node = key_package.content.leaf_node
-    
-    # Create group
-    group = api_client.create_empty_group(leaf_node, username)
-    
-    # Return group data (public info only)
-    return jsonify({
-        'success': True,
-        'group_id': group['group_id_b64'],
-        'epoch': group['epoch'],
-        'tree_hash': base64.b64encode(group['group_context'].tree_hash.data).decode('ascii'),
-        # Don't send epoch_secret directly - it would be in Welcome message
-    })
 
 @app.route('/')
 def index():
@@ -196,41 +172,7 @@ def logout():
     
     return jsonify({'success': True})
 
-@app.route('/api/active-sessions', methods=['GET'])
-def get_active_sessions():
-    """Get list of currently active users (for debugging)"""
-    return jsonify({
-        'active_users': list(active_sessions.keys()),
-        'count': len(active_sessions)
-    })
 
-@app.route('/api/verify', methods=['GET'])
-def verify():
-    """Verify token is still valid"""
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'valid': False}), 401
-    
-    token = auth_header.split(' ')[1]
-    # Here you could verify with your backend if needed
-    
-    return jsonify({'valid': True})
-
-# Add this function to periodically clean up old sessions
-def cleanup_old_sessions():
-    """Remove crypto material for users who haven't been active"""
-    current_time = time.time()
-    expired_users = []
-    
-    for user_id, data in user_crypto_store.items():
-        login_time = data.get('login_time', 0)
-        # Remove sessions older than 24 hours
-        if current_time - login_time > 24 * 3600:
-            expired_users.append(user_id)
-    
-    for user_id in expired_users:
-        print(f"Cleaning up expired session for user {user_id}")
-        del user_crypto_store[user_id]
 
 @app.route('/api/online-users', methods=['GET'])
 def get_online_users():
@@ -256,6 +198,7 @@ def get_online_users():
 @app.route('/api/groups/create-with-online', methods=['POST'])
 def create_group_with_online():
     """Create a group with all online users (excluding creator)"""
+    cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
     data = request.json
     group_name = data.get('group_name', 'MLS Test Group')
     online_users = data.get('users', [])  # List of OTHER online users (excluding creator)
@@ -354,6 +297,7 @@ def create_group_with_online():
 
         # STEP 6: Store initial epoch secret (NOW creator is a member)
         print("\n--- STEP 6: Storing initial epoch secret (epoch 0) ---")
+        
         if api_client.store_epoch_secret(
             group_id_b64=group_id_b64,
             epoch=0,  # Initial epoch
@@ -364,21 +308,6 @@ def create_group_with_online():
         else:
             print(f"❌ Failed to store initial epoch secret")
 
-        # STEP 7: Store group state in crypto store for creator
-        if 'groups' not in user_crypto_store[creator_id]:
-            user_crypto_store[creator_id]['groups'] = {}
-        
-        # saving group data at the enhanced storage:
-        user_crypto_store[creator_id]['groups'][group_id_b64] = {
-            'epoch_secret': base64.b64encode(group['epoch_secret']).decode('ascii'),
-            'init_secret': base64.b64encode(group['init_secret']).decode('ascii'),
-            'epoch': group['epoch'],
-            'tree_serialized': tree_b64,
-            'group_id_b64': group['group_id_b64'],
-            'my_leaf_index': 0,
-            'member_count': 1
-        }
-        print(f"✅ Group tree saved to crypto store for creator (leaf index 0)")
         
         # STEP 8: Add each online user to the group
         print("\n--- STEP 8: Adding online users to group ---")
@@ -455,19 +384,37 @@ def create_group_with_online():
             # Get the updated tree
             updated_tree = group['tree']
             updated_tree_serialized = updated_tree.serialize()
-            updated_tree_b64 = base64.b64encode(updated_tree_serialized).decode('ascii')
-            
-            # Update creator's stored tree
-            user_crypto_store[creator_id]['groups'][group_id_b64]['tree_serialized'] = updated_tree_b64
-            user_crypto_store[creator_id]['groups'][group_id_b64]['epoch'] = group['epoch']
-            user_crypto_store[creator_id]['groups'][group_id_b64]['member_count'] = len(group['members'])
+            updated_tree_b64 = base64.b64encode(updated_tree_serialized).decode('ascii')          
             
             print(f"   - Updated creator's tree after adding {username}")
             
             leaf_index += 1
         
+        
+        
+        # STEP 7: Store group state in crypto store for creator
+        if 'groups' not in user_crypto_store[creator_id]:
+            user_crypto_store[creator_id]['groups'] = {}
+        
+        # saving group data at the enhanced storage:
+        user_crypto_store[creator_id]['groups'][group_id_b64] = {
+            'epoch_secret': group['epoch_secret'],
+            'init_secret': group['init_secret'],
+            'epoch': group['epoch'],
+            'tree_serialized': updated_tree_b64,
+            'group_id_b64': group['group_id_b64'],
+            'my_leaf_index': 0,
+            'member_count': len(group['members']),
+            'group_last_epoch':group['epoch'],
+            'cipher_suite':cs
+        }
+        print(f"✅ Group tree saved to crypto store for creator (leaf index 0)")
+        print(f"🔑 Bob's epoch_secret (first 8): {group['epoch_secret'][:8].hex()}")
+        print(f"📝 For {username} we saved: {dict(user_crypto_store)} ")
+        
         # STEP 9: Final epoch update (to ensure group's last_epoch is current)
         print("\n--- STEP 9: Final group epoch update ---")
+
         if api_client.update_group_epoch(
             group_id_b64,
             group['epoch'],  # Final epoch after all additions
@@ -512,39 +459,35 @@ def get_user_groups():
     user_id = session.get('user_id')
     token = session.get('token')
     
-    print(f"\n🔍 GET USER GROUPS - User: {user_id}")
-    
     if not user_id or not token:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        # Call your FastAPI backend to get groups
-        
         groups_data = api_client.get_my_groups(token)
         
         if 'error' in groups_data:
             return jsonify({'error': groups_data['error']}), 400
         
-        # Enhance group data with information from your crypto store
         groups = groups_data.get('groups', [])
         enhanced_groups = []
         
         for group in groups:
-            print(f"Group Name: {group.get('group_name')}")
-            group_id = group.get('group_id')
+            group_id_b64 = group.get('group_id')
+            # Add hex version for frontend
+            group_id_hex = base64.b64decode(group_id_b64).hex()
             
-            # Add crypto info if available in user_crypto_store
             crypto_info = {}
             if user_id in user_crypto_store and 'groups' in user_crypto_store[user_id]:
-                if group_id in user_crypto_store[user_id]['groups']:
+                if group_id_b64 in user_crypto_store[user_id]['groups']:
                     crypto_info = {
                         'has_keys': True,
-                        'epoch': user_crypto_store[user_id]['groups'][group_id].get('epoch')
+                        'epoch': user_crypto_store[user_id]['groups'][group_id_b64].get('epoch')
                     }
             
             enhanced_groups.append({
                 **group,
-                **crypto_info
+                **crypto_info,
+                'group_id_hex': group_id_hex
             })
         
         return jsonify({
@@ -613,9 +556,8 @@ def process_welcome():
     
     print(f"📦 Extracted - welcome_b64 length: {len(welcome_b64) if welcome_b64 else 0}")
     print(f"📦 Extracted - group_id_b64: {group_id_b64}")
-    print("------------------------------")
     print(f"Welcome ID:{welcome_id}")
-    print("------------------------------")
+   
 
     
     if not welcome_b64 or not group_id_b64 :
@@ -721,8 +663,25 @@ def process_welcome():
         
         if 'error' in group_details:
             return jsonify({'error': 'Failed to fetch Group Detailss'}), 500
+        
+        current_epoch = group_details.get('last_epoch', 0)
+        print(f"📊 Current group epoch from DB: {current_epoch}")
+        print(f"📊 Our epoch from welcome: {group_state['epoch']}")
+
+        # Try to get epoch secret from database
+        epoch_secret_data = api_client.get_epoch_secret(group_id_b64, current_epoch, token)
+        
+        if 'error' not in epoch_secret_data:
+            # Update epoch secret to current one
+            epoch_secret_bytes = base64.b64decode(epoch_secret_data.get('epoch_secret'))
+            print(f"   Fetched epoch secret (first 8): {epoch_secret_bytes[:8].hex()}...")
             
-        # ────────────────────────────────────────────────
+            # Update group_state with the CORRECT epoch secret
+            group_state['epoch_secret'] = epoch_secret_bytes
+            group_state['epoch'] = current_epoch
+            print(f"✅ Updated epoch secret to epoch {current_epoch}")
+        else:
+            print(f"⚠️ Could not fetch epoch secret: {epoch_secret_data.get('error')}")
         # 3. Fetch group members to get MY leaf index
         # ────────────────────────────────────────────────
         members_data = api_client.get_group_members(group_id_b64, token)
@@ -736,6 +695,7 @@ def process_welcome():
         
         # Get the count
         member_count = len(members)
+        
 
         # Find your own leaf index
         my_leaf_index = None
@@ -748,9 +708,8 @@ def process_welcome():
             return jsonify({'error': 'Your user_id not found in group members'}), 500
 
         print(f"   My leaf index = {my_leaf_index}")
-        
-        group_state['group_last_epoch'] = group_details.get('last_epoch')
-        group_state['member_count'] = member_count
+        group_state['group_last_epoch'] = current_epoch
+        group_state['member_count'] = len(members)
         group_state['my_leaf_index'] = my_leaf_index
 
         # Reconstruct / load ratchet tree (prefer extension, fallback to DB)
@@ -823,9 +782,9 @@ def process_welcome():
             user_crypto_store[user_id] = {}
         if 'groups' not in user_crypto_store[user_id]:
             user_crypto_store[user_id]['groups'] = {}
-
+        print(f"🔑 Updated epoch_secret for {username}: {group_state['epoch_secret'][:8].hex()}")
         user_crypto_store[user_id]['groups'][group_id_b64] = group_state
-        print(f"--------------------{welcome_id}")
+        print(f"📝 For {username} we saved: {dict(user_crypto_store)} ")
         response=api_client.mark_welcome_delivered(welcome_id, token)
         # 1. Check if the 'status' key exists
         if response.get("status") == "delivered":
@@ -868,6 +827,167 @@ def restore_group_tree(user_id, group_id_b64):
     
     return None
 
+@app.route('/api/messages/send', methods=['POST'])
+def send_message():
+    print("="*50)
+    print("SEND MESSAGE ENDPOINT CALLED")
+    print("="*50)
+    
+    data = request.json
+    print(f"Request data: {data}")
+    
+    group_id_hex = data.get('group_id_hex')
+    message_text = data.get('message')
+    
+    print(f"group_id_hex: {group_id_hex}")
+    print(f"message_text: {message_text}")
+    
+    user_id = session.get('user_id')
+    token = session.get('token')
+    
+    print(f"user_id: {user_id}")
+    print(f"token exists: {bool(token)}")
+    
+    if not user_id or not token:
+        print("❌ Not authenticated")
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if not group_id_hex or not message_text:
+        print("❌ Missing fields")
+        return jsonify({'error': 'Group ID hex and message required'}), 400
+    
+    # Convert hex to base64
+    try:
+        group_id_bytes = bytes.fromhex(group_id_hex)
+        group_id_b64 = base64.b64encode(group_id_bytes).decode('ascii')
+        print(f"Converted to base64: {group_id_b64}")
+    except Exception as e:
+        print(f"❌ Invalid hex: {e}")
+        return jsonify({'error': f'Invalid group_id hex: {e}'}), 400
+    
+    # Check user_crypto_store
+    print(f"user_crypto_store keys: {list(user_crypto_store.keys()) if user_crypto_store else 'empty'}")
+    
+    if user_id not in user_crypto_store:
+        print(f"❌ User {user_id} not in crypto store")
+        return jsonify({'error': 'User not found'}), 400
+    
+    if 'groups' not in user_crypto_store[user_id]:
+        print(f"❌ No groups for user {user_id}")
+        return jsonify({'error': 'No groups found'}), 400
+    
+    if group_id_b64 not in user_crypto_store[user_id]['groups']:
+        print(f"❌ Group {group_id_b64} not found in user's groups")
+        print(f"Available groups: {list(user_crypto_store[user_id]['groups'].keys())}")
+        return jsonify({'error': 'Group not found'}), 404
+    
+    group_state = user_crypto_store[user_id]['groups'][group_id_b64]
+    print(f"✅ Group state found, epoch: {group_state.get('epoch')}")
+    
+    try:
+        result = api_client.encrypt_and_send_message(
+            group_id_b64=group_id_b64,
+            message_text=message_text,
+            token=token,
+            user_id=user_id,
+            group_state=group_state
+        )
+        
+        print(f"Result from encrypt_and_send_message: {result}")
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 400
+        
+        return jsonify({'success': True, 'message': 'Message sent'})
+        
+    except Exception as e:
+        print(f"❌ Exception in encrypt_and_send_message: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+        
+    
+@app.route('/api/messages/get', methods=['POST'])
+def get_messages():
+    """Get and decrypt messages for a group - uses POST with JSON body"""
+    data = request.json
+    group_id_hex = data.get('group_id_hex')
+    
+    user_id = session.get('user_id')
+    token = session.get('token')
+    
+    if not user_id or not token:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if not group_id_hex:
+        return jsonify({'error': 'group_id_hex required'}), 400
+    
+    # Convert hex to base64 for lookup
+    try:
+        group_id_bytes = bytes.fromhex(group_id_hex)
+        group_id_b64 = base64.b64encode(group_id_bytes).decode('ascii')
+    except:
+        return jsonify({'error': 'Invalid group_id hex'}), 400
+    
+    print(f"📩 Getting messages for group: {group_id_b64} (hex: {group_id_hex})")
+    
+    # Get group state using base64
+    if user_id not in user_crypto_store:
+        return jsonify({'messages': []})
+    
+    if 'groups' not in user_crypto_store[user_id]:
+        return jsonify({'messages': []})
+    
+    if group_id_b64 not in user_crypto_store[user_id]['groups']:
+        print(f"Group {group_id_b64} not found in user's groups")
+        return jsonify({'messages': []})
+    
+    group_state = user_crypto_store[user_id]['groups'][group_id_b64]
+    
+    # Get messages from FastAPI
+    result = api_client.get_group_messages(group_id_b64, token)
+    
+    if 'error' in result:
+        return jsonify({'error': result['error']}), 400
+
+    print(f"📊 Received {len(result.get('messages', []))} messages from FastAPI")
+    
+    # Log the first message for debugging
+    if result.get('messages'):
+        first_msg = result['messages'][0]
+        print(f"📊 First message - sender: {first_msg.get('sender_username')}")
+        print(f"📊 First message - ciphertext length: {len(first_msg.get('ciphertext', ''))}")
+        print(f"📊 First message - epoch: {first_msg.get('epoch')}")
+    
+    # Decrypt messages
+    decrypted_messages = []
+    
+    for msg in result.get('messages', []):
+        try:
+            print(f"🔓 Attempting to decrypt message from {msg.get('sender_username')}")
+            decrypted = api_client.decrypt_message(msg, group_state, user_id)
+            if decrypted:
+                print(f"✅ Decrypted: {decrypted.get('text')[:50]}")
+                decrypted_messages.append(decrypted)
+            else:
+                print(f"❌ Decryption returned None")
+        except Exception as e:
+            print(f"⚠️ Failed to decrypt message: {e}")
+            import traceback
+            traceback.print_exc()
+            decrypted_messages.append({
+                'message_id': msg.get('message_id'),
+                'sender_username': msg.get('sender_username', 'Unknown'),
+                'text': f'[Encrypted - Error: {str(e)[:50]}]',
+                'created_at': msg.get('created_at')
+            })
+    
+    return jsonify({
+        'success': True,
+        'messages': decrypted_messages
+    })
+    
+    
 @app.route('/api/debug/active-sessions', methods=['GET'])
 def debug_active_sessions():
     """Debug endpoint to check active sessions"""
@@ -883,55 +1003,6 @@ def debug_active_sessions():
         }
     })
 
-@app.route('/api/debug/group/<group_id>', methods=['GET'])
-def debug_group(group_id):
-    """Debug endpoint to check group details in database"""
-    token = session.get('token')
-     # Force lowercase for consistency
-    group_id = group_id.lower()
-    
-    query = "SELECT * FROM groups WHERE encode(group_id, 'hex') = $1"
-    if not token:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    try:
-        # Get group details
-        group_details = api_client.get_group_details(group_id, token)
-        
-        # Get group members
-        members = api_client.get_group_members(group_id, token)
-        
-        # Get messages
-        messages = api_client.get_group_messages(group_id, token)
-        
-        return jsonify({
-            'group_details': group_details,
-            'members': members,
-            'message_count': len(messages.get('messages', [])) if messages else 0
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/debug/db-check', methods=['GET'])
-def debug_db_check():
-    """Check database contents directly"""
-    token = session.get('token')
-    if not token:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    try:
-        # Get all groups for user
-        groups = api_client.get_my_groups(token)
-        
-        result = {
-            'groups_count': len(groups.get('groups', [])) if groups else 0,
-            'groups': groups,
-            'database_status': 'check your PostgreSQL directly'
-        }
-        
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+

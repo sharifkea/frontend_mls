@@ -16,14 +16,18 @@ body {
 .container {
     width: 90%;
     max-width: 1200px;
-    height: 90vh;
     background: white;
     border-radius: 20px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    overflow: hidden;
+    max-height: 90vh;
+    height: auto;
+    overflow-y: auto;
 }
 
-/* Auth Container */
+
+/* ============================================
+   AUTHENTICATION CONTAINER
+   ============================================ */
 .auth-container {
     max-width: 400px;
     margin: 50px auto;
@@ -116,7 +120,9 @@ body {
     text-align: center;
 }
 
-/* Main App Container */
+/* ============================================
+   MAIN APP CONTAINER
+   ============================================ */
 .app-container {
     display: flex;
     flex-direction: column;
@@ -147,13 +153,18 @@ body {
     cursor: pointer;
 }
 
-/* Main Content */
+/* ============================================
+   MAIN CONTENT LAYOUT
+   ============================================ */
 .main-content {
     display: flex;
     flex: 1;
     overflow: hidden;
 }
 
+/* ============================================
+   GROUPS SECTION
+   ============================================ */
 .groups-section {
     width: 300px;
     background: #f8f9fa;
@@ -165,6 +176,7 @@ body {
 .groups-section h3 {
     margin-bottom: 15px;
     color: #333;
+    position: relative;
 }
 
 .groups-list {
@@ -184,6 +196,12 @@ body {
 .group-item:hover {
     background: #e9ecef;
     transform: translateX(5px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
+}
+
+.group-item.unread {
+    border-left: 3px solid #4CAF50;
+    background: linear-gradient(to right, rgba(76, 175, 80, 0.05), white);
 }
 
 .group-name {
@@ -197,6 +215,13 @@ body {
     color: #666;
 }
 
+.group-id {
+    font-size: 10px;
+    color: #999;
+    font-family: monospace;
+    margin-top: 4px;
+}
+
 .create-group-btn {
     width: 100%;
     padding: 10px;
@@ -208,6 +233,16 @@ body {
     font-size: 14px;
 }
 
+.no-groups {
+    text-align: center;
+    color: #999;
+    padding: 20px;
+    font-style: italic;
+}
+
+/* ============================================
+   MESSAGES SECTION
+   ============================================ */
 .messages-section {
     flex: 1;
     display: flex;
@@ -220,65 +255,106 @@ body {
     border-bottom: 1px solid #e9ecef;
 }
 
-.messages-container {
-    flex: 1;
-    padding: 20px;
-    overflow-y: auto;
-    background: #f5f5f5;
+.current-group h3 {
+    color: #333;
 }
 
+/* Messages Container */
+.messages-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #f5f7fa;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Message Bubbles */
 .message {
-    margin-bottom: 15px;
-    padding: 10px 15px;
-    background: white;
-    border-radius: 10px;
     max-width: 70%;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    padding: 10px 15px;
+    border-radius: 18px;
+    word-wrap: break-word;
+    animation: fadeIn 0.3s ease;
 }
 
 .message.sent {
-    margin-left: auto;
-    background: #667eea;
+    align-self: flex-end;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.message.received {
+    align-self: flex-start;
+    background: white;
+    color: #333;
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
 .message-header {
-    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 5px;
-    color: #999;
+    font-size: 12px;
 }
 
 .message.sent .message-header {
     color: rgba(255,255,255,0.8);
 }
 
+.message.received .message-header {
+    color: #888;
+}
+
+.sender {
+    font-weight: 600;
+}
+
+.time {
+    font-size: 10px;
+    margin-left: 10px;
+}
+
+.message-content {
+    font-size: 14px;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.no-messages {
+    text-align: center;
+    color: #999;
+    padding: 40px;
+    font-style: italic;
+}
+
+/* ============================================
+   MESSAGE INPUT AREA
+   ============================================ */
 .message-input {
     display: flex;
-    padding: 20px;
+    padding: 15px 20px;
     background: white;
     border-top: 1px solid #e9ecef;
+    gap: 10px;
 }
 
 .message-input input {
     flex: 1;
-    padding: 10px;
+    padding: 12px 15px;
     border: 1px solid #ddd;
-    border-radius: 5px 0 0 5px;
+    border-radius: 25px;
     font-size: 14px;
+    transition: border-color 0.3s;
 }
 
-.message-input button {
-    padding: 10px 20px;
-    background: #667eea;
-    color: white;
-    border: none;
-    border-radius: 0 5px 5px 0;
-    cursor: pointer;
-}
-
-.message-input button:disabled {
-    background: #ccc;
-    cursor: not-allowed;
+.message-input input:focus {
+    outline: none;
+    border-color: #667eea;
 }
 
 .message-input input:disabled {
@@ -286,37 +362,42 @@ body {
     cursor: not-allowed;
 }
 
-@keyframes slideIn {
+.message-input button {
+    padding: 12px 25px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: transform 0.2s, opacity 0.2s;
+}
+
+.message-input button:hover:not(:disabled) {
+    transform: scale(1.02);
+    opacity: 0.9;
+}
+
+.message-input button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes fadeIn {
     from {
-        transform: translateX(100%);
         opacity: 0;
+        transform: translateY(10px);
     }
     to {
-        transform: translateX(0);
         opacity: 1;
+        transform: translateY(0);
     }
 }
 
-.notification {
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-}
-
-.notification.fade-out {
-    animation: fadeOut 0.3s ease;
-}
-
-@keyframes fadeOut {
-    from {
-        opacity: 1;
-    }
-    to {
-        opacity: 0;
-    }
-}
-
-/* Add to your style.css */
-
-/* Toast animations */
 @keyframes slideInRight {
     from {
         transform: translateX(100%);
@@ -337,25 +418,20 @@ body {
     }
 }
 
-/* Toast styles */
-.toast {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    pointer-events: none;
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
-.toast.success {
-    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
 }
 
-.toast.error {
-    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
-}
-
-.toast.info {
-    background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
-}
-
-/* Existing notification style update */
+/* ============================================
+   NOTIFICATIONS & TOASTS
+   ============================================ */
 .notification {
     position: fixed;
     top: 20px;
@@ -374,41 +450,26 @@ body {
     animation: fadeOut 0.3s ease forwards;
 }
 
-/* Group item hover animation */
-.group-item {
-    transition: all 0.3s ease;
+.toast {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    pointer-events: none;
 }
 
-.group-item:hover {
-    transform: translateX(5px);
-    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
+.toast.success {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
 }
 
-/* New group badge animation */
-@keyframes pulse {
-    0% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.05);
-    }
-    100% {
-        transform: scale(1);
-    }
+.toast.error {
+    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
 }
 
-.new-group-badge {
-    display: inline-block;
-    background: #4CAF50;
-    color: white;
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 10px;
-    margin-left: 8px;
-    animation: pulse 1s ease 3;
+.toast.info {
+    background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
 }
 
-/* Loading indicator for groups */
+/* ============================================
+   LOADING STATES
+   ============================================ */
 .groups-loading {
     text-align: center;
     padding: 20px;
@@ -428,13 +489,80 @@ body {
     animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+.messages-container.loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
 }
 
-/* Refresh button animation */
+.messages-container.loading::after {
+    content: '';
+    width: 30px;
+    height: 30px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* ============================================
+   SCROLLBAR STYLING
+   ============================================ */
+.messages-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+.groups-section::-webkit-scrollbar {
+    width: 6px;
+}
+
+.groups-section::-webkit-scrollbar-track {
+    background: #e9ecef;
+    border-radius: 3px;
+}
+
+.groups-section::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+/* ============================================
+   BADGES & BUTTONS
+   ============================================ */
+.new-group-badge {
+    display: inline-block;
+    background: #4CAF50;
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 8px;
+    animation: pulse 1s ease 3;
+}
+
 #refresh-groups-btn {
+    float: right;
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: #667eea;
+    padding: 0 5px;
     transition: transform 0.3s ease;
 }
 
@@ -446,8 +574,15 @@ body {
     transform: rotate(180deg) scale(0.9);
 }
 
-/* Unread indicator for new groups */
-.group-item.unread {
-    border-left: 3px solid #4CAF50;
-    background: linear-gradient(to right, rgba(76, 175, 80, 0.05), white);
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+.hidden {
+    display: none;
+}
+
+.clearfix::after {
+    content: '';
+    clear: both;
+    display: table;
 }

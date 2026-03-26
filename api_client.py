@@ -138,52 +138,7 @@ def get_latest_keypackage(user_id: str):
         print(f"❌ Get latest keypackage failed: {str(e)}")
         return None
 
-def mark_keypackage_used(ref_hash_hex: str):
-    """Mark a key package as used"""
-    try:
-        response = requests.post(
-            f"{BASE_URL}/key_packages/mark-used",
-            json={"ref_hash": ref_hash_hex},
-            headers={"Content-Type": "application/json"}
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"Mark keypackage used failed: {str(e)}")
-        return {"error": str(e)}
-
 # ============ GROUP MANAGEMENT ============
-
-def create_group(group_name: str, cipher_suite: int, token: str, group_id_b64: str = None):
-    """Create a new MLS group"""
-    try:
-        payload = {
-            "group_name": group_name,
-            "cipher_suite": cipher_suite
-        }
-        
-        # If group_id_b64 is provided, convert to hex for URL/JSON
-        if group_id_b64:
-            group_id_bytes = base64.b64decode(group_id_b64)
-            group_id_hex = group_id_bytes.hex()
-            payload["group_id"] = group_id_hex  # Send hex, not base64!
-        
-        print(f"Creating group with hex ID: {group_id_hex if group_id_b64 else 'auto'}")
-        
-        response = requests.post(
-            f"{BASE_URL}/groups",
-            json=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}"
-            }
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"Create group failed: {str(e)}")
-        return {"error": str(e)}
-
 
 def get_my_groups(token: str):
     """Get all groups for the current user from FastAPI"""
@@ -216,75 +171,29 @@ def get_my_groups(token: str):
     except Exception as e:
         print(f"❌ Error fetching groups: {str(e)}")
         return {"error": str(e), "groups": []}
-    
-def create_group(group_name: str, cipher_suite: int, token: str, group_id_b64: str = None):
-    """Create a new MLS group in the FastAPI backend"""
+
+def get_epoch_secret(group_id_b64: str, epoch: int, token: str):
+    """Get epoch secret from the database"""
     try:
         import base64
         import requests
         
-        print(f"\n🔍 CREATE GROUP DEBUG:")
-        print(f"  - group_name: {group_name}")
-        print(f"  - cipher_suite: {cipher_suite}")
-        print(f"  - group_id_b64: {group_id_b64}")
+        group_id_bytes = base64.b64decode(group_id_b64)
+        group_id_hex = group_id_bytes.hex()
         
-        payload = {
-            "group_name": group_name,
-            "cipher_suite": cipher_suite
-        }
+        url = f"{BASE_URL}/groups/{group_id_hex}/epoch-secrets/{epoch}"
+        print(f"📡 Fetching epoch secret from: {url}")
         
-        # If group_id_b64 is provided, convert to bytes and verify length
-        if group_id_b64:
-            # Decode base64 to bytes
-            group_id_bytes = base64.b64decode(group_id_b64)
-            print(f"  - Decoded bytes length: {len(group_id_bytes)} bytes")
-            print(f"  - Bytes hex: {group_id_bytes.hex()}")
-            
-            # VERIFY: Must be 16 bytes
-            if len(group_id_bytes) != 16:
-                print(f"❌ ERROR: group_id is {len(group_id_bytes)} bytes, must be 16 bytes")
-                return {"error": f"Invalid group_id length: {len(group_id_bytes)} bytes, must be 16"}
-            
-            # IMPORTANT: FastAPI might expect base64 string, not hex!
-            # Option 1: Send as base64 string (original format)
-            payload["group_id"] = group_id_b64  # Send original base64
-            print(f"  - Sending as base64: {group_id_b64}")
-            
-            # Option 2: Send as hex string (if your FastAPI expects hex)
-            # payload["group_id"] = group_id_bytes.hex()
-            # print(f"  - Sending as hex: {group_id_bytes.hex()}")
-        
-        url = f"{BASE_URL}/groups"
-        print(f"  - URL: {url}")
-        print(f"  - Full payload: {payload}")
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}"
-        }
-        
-        response = requests.post(url, json=payload, headers=headers)
-        print(f"  - Response status: {response.status_code}")
+        response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
         
         if response.status_code == 200:
-            result = response.json()
-            print(f"  - Response: {result}")
-            print(f"✅ Group created successfully")
-            return result
+            return response.json()
         else:
-            error_text = response.text
-            print(f"❌ Error response: {error_text}")
-            return {"error": f"HTTP {response.status_code}: {error_text}"}
-            
-    except base64.binascii.Error as e:
-        print(f"❌ Base64 error: {str(e)}")
-        return {"error": f"Invalid base64: {str(e)}"}
+            print(f"❌ Failed to get epoch secret: {response.status_code}")
+            return {"error": f"HTTP {response.status_code}"}
     except Exception as e:
-        print(f"❌ Exception: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error getting epoch secret: {str(e)}")
         return {"error": str(e)}
-
     
 # ============ MESSAGE MANAGEMENT ============
 
@@ -331,30 +240,6 @@ def get_group_messages(group_id_b64: str, token: str, since_epoch: int = None):
         return {"error": str(e)}
     
 # ============ CLEANUP ============
-
-def cleanup_expired():
-    """Run cleanup of expired packages"""
-    try:
-        response = requests.post(f"{BASE_URL}/cleanup")
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"Cleanup failed: {str(e)}")
-        return {"error": str(e)}
-
-def delete_user(user_id: str, token: str):
-    """Delete a user account"""
-    try:
-        response = requests.delete(
-            f"{BASE_URL}/users/{user_id}",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        response.raise_for_status()
-        return {"success": True}
-    except Exception as e:
-        print(f"Delete user failed: {str(e)}")
-        return {"error": str(e)}
-    
 
 def create_group_with_id(group_name: str, cipher_suite: int, token: str, group_id_b64: str):
     """Create a group with a specific ID"""
@@ -841,132 +726,6 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
     print(f"  - encrypted_group_info len: {len(encrypted_group_info)}")
 
     return welcome
-
-async def process_pending_welcomes(priv_bytes: bytes, token: str):
-    """
-    Process all pending welcome messages for a user using the library's built-in decryption
-    """
-    print("\n📨 Processing all pending welcomes...")
-    
-    try:
-        # 1. Fetch pending welcomes from the server
-        resp = requests.get(f"{BASE_URL}/pending-welcomes", headers={"Authorization": f"Bearer {token}"})
-        resp.raise_for_status()
-        
-        data = resp.json()
-        welcomes = data.get("welcomes", [])
-        
-        if not welcomes:
-            print("   No pending welcomes")
-            return []
-        
-        print(f"   Found {len(welcomes)} pending welcomes")
-        
-        joined_groups = []
-        
-        # 2. Process each welcome
-        for item in welcomes:
-            try:
-                welcome_b64 = item["welcome_b64"]
-                group_id_b64 = item.get("group_id")  # if available
-                
-                print(f"\n   Processing welcome for group: {group_id_b64}")
-                
-                # Decode welcome
-                welcome_bytes = base64.b64decode(welcome_b64)
-                welcome = Welcome.deserialize(bytearray(welcome_bytes))
-                
-                # Get cipher suite from welcome
-                cs = welcome.cipher_suite
-                
-                # Find the encrypted secret for this user
-                if not welcome.secrets:
-                    print("   ⚠️ No secrets in welcome, skipping")
-                    continue
-                
-                # Assume first secret (in production, match by ref_hash)
-                encrypted_secret = welcome.secrets[0]
-                
-                # === USE LIBRARY'S DECRYPT METHOD - NOT simple_hpke_open! ===
-                group_secrets = encrypted_secret.decrypt(
-                    cipher_suite=cs,
-                    private_key=priv_bytes,
-                    encrypted_group_info=bytes(welcome.encrypted_group_info.data)
-                )
-                
-                joiner_secret = group_secrets.joiner_secret.to_bytes()
-                print(f"   ✅ GroupSecrets decrypted, joiner: {joiner_secret[:16].hex()}...")
-                
-                # Decrypt GroupInfo
-                group_info = welcome.decrypt_group_info(
-                    joiner_secret=joiner_secret,
-                    psk_secret=bytes(32)  # no PSK
-                )
-                
-                print(f"   ✅ GroupInfo decrypted successfully")
-                
-                # Extract group data
-                ctx = group_info.group_context
-                group_id_bytes = ctx.group_id.to_bytes()
-                epoch = ctx.epoch
-                
-                # Try to load ratchet tree from extensions
-                from mls_stuff.RatchetTree._ratchet_tree import RatchetTree
-                from mls_stuff.Enums import ExtensionType
-                
-                tree = RatchetTree()
-                tree_found = False
-                
-                if hasattr(group_info, 'extensions') and group_info.extensions:
-                    for ext in group_info.extensions:
-                        if ext.extension_type == ExtensionType.ratchet_tree:
-                            tree_data = bytes(ext.extension_data.data)
-                            tree = RatchetTree.deserialize(bytearray(tree_data))
-                            print(f"   ✅ Ratchet tree loaded ({len(tree_data)} bytes)")
-                            tree_found = True
-                            break
-                
-                if not tree_found:
-                    print(f"   ⚠️ No ratchet tree found, initializing empty")
-                    tree.extend()
-                    tree.extend()
-                
-                # Derive epoch secret
-                from mls_stuff.Crypto._derive_secrets import DeriveSecret
-                epoch_secret = DeriveSecret(cs, joiner_secret, b"epoch")
-                
-                # Build group state
-                import base64
-                import time
-                
-                group_state = {
-                    "group_id": group_id_bytes,
-                    "group_id_b64": base64.b64encode(group_id_bytes).decode('ascii'),
-                    "epoch": epoch,
-                    "tree": tree,
-                    "group_context": ctx,
-                    "group_info": group_info,
-                    "epoch_secret": epoch_secret,
-                    "joiner_secret": joiner_secret,
-                    "cipher_suite": cs,
-                    "joined_at": time.time()
-                }
-                
-                print(f"   ✅ Successfully joined group: {group_state['group_id_b64']}")
-                joined_groups.append(group_state)
-                
-            except Exception as e:
-                print(f"   ❌ Failed to process welcome: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                continue
-        
-        print(f"\n✅ Processed {len(joined_groups)}/{len(welcomes)} welcomes successfully")
-        return joined_groups
-        
-    except Exception as e:
-        print(f"❌ Failed to fetch pending welcomes: {str(e)}")
-        return []
     
 def get_pending_welcomes(token: str):
     """Get pending welcome messages for the current user from FastAPI"""
@@ -994,53 +753,6 @@ def get_pending_welcomes(token: str):
         print(f"❌ Error fetching welcomes: {str(e)}")
         return {"error": str(e), "welcomes": []}    
         
-
-    
-    except Exception as e:
-        print(f"❌ Processing failed: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return {"error": str(e)}
-
-def check_epoch_secrets(group_id_b64: str, token: str):
-    """Check what epoch secrets exist in the database"""
-    import base64
-    import requests
-    
-    group_id_bytes = base64.b64decode(group_id_b64)
-    group_id_hex = group_id_bytes.hex()
-    
-    # First, check the groups table to see current epoch
-    group_url = f"{BASE_URL}/groups/{group_id_hex}"
-    group_response = requests.get(group_url, headers={"Authorization": f"Bearer {token}"})
-    
-    # Then check epoch_secrets table
-    # You might need an endpoint to query epoch secrets
-    print("\n📊 EPOCH SECRETS DIAGNOSTIC")
-    print("="*50)
-    
-    if group_response.status_code == 200:
-        group_data = group_response.json()
-        print(f"Group: {group_data.get('group_name')}")
-        print(f"Current epoch in groups table: {group_data.get('last_epoch')}")
-    
-    # Query epoch_secrets directly (if you have an endpoint)
-    secrets_url = f"{BASE_URL}/groups/{group_id_hex}/epoch-secrets"
-    secrets_response = requests.get(secrets_url, headers={"Authorization": f"Bearer {token}"})
-    
-    if secrets_response.status_code == 200:
-        secrets_data = secrets_response.json()
-        epochs = secrets_data.get('epochs', [])
-        print(f"Epoch secrets stored: {epochs}")
-        print(f"Count: {len(epochs)}")
-    else:
-        print("No epoch secrets endpoint or error accessing")
-    
-    return {
-        'group_epoch': group_data.get('last_epoch') if group_response.status_code == 200 else None,
-        'stored_epochs': epochs if secrets_response.status_code == 200 else []
-    }
-
 
 def process_single_welcome(private_key: bytes, welcome_b64: str, group_id_b64: str): 
 #process_single_welcome(private_key: bytes, welcome_b64: str, group_id_b64: str) -> Dict[str, Any]:
@@ -1143,7 +855,8 @@ def process_single_welcome(private_key: bytes, welcome_b64: str, group_id_b64: s
         epoch = group_context.epoch
 
         epoch_secret = DeriveSecret(cipher_suite, joiner_secret, b"epoch")
-
+        print(f"🔍 epoch_secret: '{epoch_secret}'")
+        print(f"🔍 epoch_secret length: {len(epoch_secret) if epoch_secret else 0}")
         group_state = {
             "group_id": group_id_bytes,
             "group_id_b64": base64.b64encode(group_id_bytes).decode('ascii'),
@@ -1189,6 +902,126 @@ def mark_welcome_delivered(welcome_id: str, token: str):
         print(f"❌ Failed to mark welcome delivered: {str(e)}")
         return {"error": str(e)}
     
-def debug_print(step, data):
-    """Simple debug function"""
-    print(f"\n🔍 DEBUG [{step}]: {data}")
+        
+
+
+def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, user_id: str, group_state: dict):
+    """
+    Encrypt an application message using current epoch_secret and send to server
+    """
+    try:
+        epoch = group_state.get('group_last_epoch', group_state.get('epoch', 0))
+        
+        # epoch_secret is stored as bytes (from your fix)
+        epoch_secret = group_state['epoch_secret']
+        my_leaf_index = group_state['my_leaf_index']
+        cipher_suite = group_state['cipher_suite']
+        group_id_bytes = base64.b64decode(group_id_b64)
+        
+        print(f"🔐 Encrypting message for group {group_id_b64} at epoch {epoch}")
+        print(f"   epoch_secret length: {len(epoch_secret)} bytes")
+        print(f"   epoch_secret (first 8): {epoch_secret[:8].hex()}...")
+
+        # 1. Create FramedContent
+        sender = Sender(sender_type=SenderType.member, leaf_index=my_leaf_index)
+        
+        framed_content = FramedContent(
+            group_id=VLBytes(group_id_bytes),
+            epoch=epoch,
+            sender=sender,
+            authenticated_data=VLBytes(b""),
+            content_type=ContentType.application,
+            application_data=VLBytes(message_text.encode('utf-8'))
+        )
+        
+        # 2. Serialize the content to be encrypted
+        content_bytes = framed_content.serialize()
+        
+        # 3. Derive message encryption key
+        message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
+        
+        # 4. Generate random nonce
+        nonce = secrets.token_bytes(12)
+        
+        # 5. Encrypt the FramedContent
+        aead = AESGCM(message_key)
+        ciphertext = aead.encrypt(nonce, content_bytes, b"")
+        
+        # 6. Store ONLY the ciphertext and nonce (NOT wrapped in MLSMessage!)
+        payload = {
+            "group_id": group_id_b64,
+            "ciphertext": base64.b64encode(ciphertext).decode('ascii'),  # ← Only the encrypted content
+            "nonce": base64.b64encode(nonce).decode('ascii'),           # ← The nonce
+            "epoch": epoch,
+            "content_type": 1,
+            "wire_format": 2
+        }
+        
+        print(f"   ciphertext length: {len(ciphertext)}")
+        print(f"   nonce: {nonce.hex()}")
+        
+        response = requests.post(
+            f"{BASE_URL}/messages",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        
+        if response.status_code == 200:
+            print(f"✅ Message sent successfully")
+            return {"success": True, "message": "Message sent"}
+        else:
+            return {"error": f"Server error: {response.text}"}
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+
+def decrypt_message(msg_data: dict, group_state: dict, user_id: str):
+    """Decrypt a received message"""
+    try:
+        import base64
+        from mls_stuff.Crypto._derive_secrets import DeriveSecret
+        from mls_stuff.MLS import FramedContent
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        
+        # Get epoch secret (use the same epoch as the message)
+        epoch = msg_data.get('epoch', group_state.get('group_last_epoch'))
+        
+        # Get epoch secret - if we have multiple epoch secrets, you need to store them
+        epoch_secret= group_state.get('epoch_secret')
+              
+        cipher_suite = group_state['cipher_suite']
+        
+        # Derive message key
+        message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
+        
+        # Decode ciphertext and nonce
+        ciphertext = base64.b64decode(msg_data['ciphertext'])
+        nonce = base64.b64decode(msg_data['nonce'])
+        
+        # Decrypt
+        aead = AESGCM(message_key)
+        plaintext = aead.decrypt(nonce, ciphertext, b"")
+        
+        # Parse FramedContent
+        framed = FramedContent.deserialize(bytearray(plaintext))
+        
+        # Extract message
+        if hasattr(framed, 'application_data'):
+            message_text = framed.application_data.data.decode('utf-8')
+        else:
+            message_text = "[No text]"
+        
+        return {
+            'message_id': msg_data.get('message_id'),
+            'sender_username': msg_data.get('sender_username', 'Unknown'),
+            'sender_leaf_index': framed.sender.leaf_index,
+            'text': message_text,
+            'epoch': epoch,
+            'created_at': msg_data.get('created_at')
+        }
+        
+    except Exception as e:
+        print(f"❌ Decryption error: {e}")
+        raise
