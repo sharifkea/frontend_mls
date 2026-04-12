@@ -1,5 +1,5 @@
 # app.py
-import uuid, os, time, sys, json, base64, api_client, create_keypakage,secrets
+import uuid, os, time, sys, json, base64, api_client,api_client_2,api_client_3,create_keypakage,secrets
 
 from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
@@ -18,6 +18,7 @@ from mls_stuff.MLS import MLSMessage
 from mls_stuff.Enums import  WireFormat
 from mls_stuff.RatchetTree import RatchetTree, RatchetNode, LeafNode
 from mls_stuff.Enums import ExtensionType
+from mls_stuff.Crypto._derive_secrets import DeriveSecret
 
 cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 
 load_dotenv()
@@ -79,7 +80,7 @@ def login():
     try:
         # 1. Login to get user_id and token
         result = api_client.login_user(username, password)
-        print(f"Login result: {result}")
+       #print(f"Login result: {result}")
         
         if 'error' in result:
             return jsonify({'error': result['error']}), 401
@@ -87,12 +88,14 @@ def login():
         user_id = result['user_id']
         token = result['access_token']
         
+        print(f"   - User ID: {user_id}")
+        print(f"   - Token: {token}")
         # 2. Generate FRESH key package for this session
-        print(f"Generating fresh key package for {username}...")
+        #print(f"Generating fresh key package for {username}...")
         private_key, init_priv, key_package_bytes = create_keypakage.GeneratKeyPackage(username)
         
         # 3. Upload key package to backend database
-        print(f"Uploading new key package (old ones will be deactivated)...")
+       #print(f"Uploading new key package (old ones will be deactivated)...")
         upload_result = api_client.upload_keypackage(user_id, key_package_bytes)
         # Deserialize to get the proper MLS reference hash
         
@@ -100,7 +103,7 @@ def login():
         # Compute reference hash (same as in MLS)
         key_package = KeyPackage.deserialize(bytearray(key_package_bytes))
         ref_hash_hex = key_package.reference_hash(cs).hex() 
-        print(f"✅ Key package uploaded. Reference hash: {ref_hash_hex[:16]}...")
+       #print(f"✅ Key package uploaded. Reference hash: {ref_hash_hex[:16]}...")
         
         # Store with reference
         if user_id not in user_crypto_store:
@@ -126,7 +129,7 @@ def login():
             'username': username,
             'login_time': time.time()
         }
-        print(f"✅ Added {username} to active_sessions. Current active: {list(active_sessions.keys())}")
+       #print(f"✅ Added {username} to active_sessions. Current active: {list(active_sessions.keys())}")
         
         # 6. Store in session
         session['user_id'] = user_id
@@ -134,8 +137,8 @@ def login():
         session['username'] = username
         session.permanent = True  # Make session permanent
         
-        print(f"Session after login: {dict(session)}")
-        print(f"Active sessions now: {len(active_sessions)} users")
+       #print(f"Session after login: {dict(session)}")
+       #print(f"Active sessions now: {len(active_sessions)} users")
         
         return jsonify({
             'success': True,
@@ -146,7 +149,7 @@ def login():
         })
         
     except Exception as e:
-        print(f"Login error: {str(e)}")
+       #print(f"Login error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Login failed'}), 500
@@ -158,17 +161,17 @@ def logout():
     
     # Remove from active sessions
     if user_id and user_id in active_sessions:
-        print(f"Removing {user_id} from active_sessions")
+       #print(f"Removing {user_id} from active_sessions")
         del active_sessions[user_id]
     
     # Remove PRIVATE key from server memory
     if user_id and user_id in user_crypto_store:
-        print(f"Clearing private crypto material for user {user_id}")
+       #print(f"Clearing private crypto material for user {user_id}")
         del user_crypto_store[user_id]
     
     session.clear()
     
-    print(f"Active sessions after logout: {len(active_sessions)}")
+   #print(f"Active sessions after logout: {len(active_sessions)}")
     
     return jsonify({'success': True})
 
@@ -194,264 +197,6 @@ def get_online_users():
         'users': online_users,
         'count': len(online_users)
     })
-
-@app.route('/api/groups/create-with-online', methods=['POST'])
-def create_group_with_online():
-    """Create a group with all online users (excluding creator)"""
-    cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
-    data = request.json
-    group_name = data.get('group_name', 'MLS Test Group')
-    online_users = data.get('users', [])  # List of OTHER online users (excluding creator)
-    creator_id = session.get('user_id')
-    token = session.get('token')
-    creator_username = session.get('username')
-    
-    print("\n" + "="*60)
-    print("CREATE GROUP WITH ONLINE - START")
-    print("="*60)
-    print(f"Creator: {creator_username} ({creator_id})")
-    print(f"Group name: {group_name}")
-    print(f"Other online users received: {online_users}")
-    print(f"Number of other users: {len(online_users)}")
-    
-    if not creator_id or not token:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    try:        
-        # STEP 2: Get creator's key package
-        print("\n--- STEP 2: Getting creator's key package from DB ---")
-        creator_kp_bytes = api_client.get_latest_keypackage(creator_id)
-        if not creator_kp_bytes:
-            error_msg = f"No key package found for creator {creator_username}. Please login again."
-            print(f"❌ {error_msg}")
-            return jsonify({'error': error_msg}), 400
-        
-        print(f"✅ Got creator key package: {len(creator_kp_bytes)} bytes")
-        
-        # Get creator's private key
-        if creator_id not in user_crypto_store or 'private_key' not in user_crypto_store[creator_id]:
-            error_msg = f"Private key not found for creator {creator_username}. Please login again."
-            print(f"❌ {error_msg}")
-            return jsonify({'error': error_msg}), 400
-        
-        creator_private_key = user_crypto_store[creator_id]['private_key']
-        print(f"✅ Got creator private key from crypto store")
-        
-        # STEP 3: Create empty group
-        print("\n--- STEP 3: Creating empty group ---")
-        creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
-        creator_leaf = creator_kp.content.leaf_node
-        group = api_client.create_empty_group(creator_leaf, creator_username)
-
-        
-
-        
-        group_id_bytes = group['group_id'].data
-        group_id_b64 = base64.b64encode(group_id_bytes).decode('ascii')
-        group_id_hex = group_id_bytes.hex()
-        
-        print(f"✅ Group created successfully!")
-        print(f"  - Group ID (b64): {group_id_b64}")
-        print(f"  - Group ID (hex): {group_id_hex}")
-        print(f"  - Initial Epoch: {group['epoch']}")
-
-        # ===== ADD THIS: Save tree for creator =====
-        tree = group['tree']  # Get the ratchet tree from the group
-
-        # Serialize tree for storage
-        tree_serialized = tree.serialize()
-        tree_b64 = base64.b64encode(tree_serialized).decode('ascii')
-
-        # Save group state with tree for creator
-        #if 'groups' not in user_crypto_store[creator_id]:
-        #    user_crypto_store[creator_id]['groups'] = {}
-
-        #user_crypto_store[creator_id]['groups'][group_id_b64] = {
-        #    'epoch_secret': base64.b64encode(group['epoch_secret']).decode('ascii'),
-        #    'init_secret': base64.b64encode(group['init_secret']).decode('ascii'),
-        #    'epoch': group['epoch'],
-        #    'tree_serialized': tree_b64,  # ← ADD THIS!
-        #    'group_id_b64': group['group_id_b64'],
-        #    'my_leaf_index': 0,  # Creator is always leaf 0
-        #    'member_count': 1  # Initially just creator
-        #}
-        #print(f"✅ Group tree saved to crypto store for creator (leaf index 0)")
-
-        # STEP 4: Save group to database
-        print("\n--- STEP 4: Saving group to database ---")
-        create_response = api_client.create_group_with_id(
-            group_name, 1, token, group_id_b64
-        )
-        if 'error' in create_response:
-            print(f"❌ Failed to save group: {create_response['error']}")
-            return jsonify({'error': f"Failed to save group: {create_response['error']}"}), 500
-        print(f"✅ Group saved to database with ID: {group_id_b64}")
-
-        # STEP 5: Add creator to group_members
-        print("\n--- STEP 5: Adding creator to group_members ---")
-        member_result = api_client.add_group_member(group_id_b64, creator_id, 0, token)
-        if 'error' in member_result:
-            print(f"⚠️ Failed to add creator to database: {member_result['error']}")
-        else:
-            print(f"✅ Creator added to group_members at leaf index 0")
-
-        # STEP 6: Store initial epoch secret (NOW creator is a member)
-        print("\n--- STEP 6: Storing initial epoch secret (epoch 0) ---")
-        
-        if api_client.store_epoch_secret(
-            group_id_b64=group_id_b64,
-            epoch=0,  # Initial epoch
-            epoch_secret=group['epoch_secret'],
-            token=token
-        ):
-            print(f"✅ Initial epoch secret stored in database")
-        else:
-            print(f"❌ Failed to store initial epoch secret")
-
-        
-        # STEP 8: Add each online user to the group
-        print("\n--- STEP 8: Adding online users to group ---")
-        leaf_index = 1
-        added_members = [creator_username]
-        
-        for user in online_users:
-            user_id = user.get('user_id')
-            username = user.get('username')
-            
-            print(f"\n📌 Adding user: {username} ({user_id})")
-            
-            # Get user's key package
-            user_kp_bytes = api_client.get_latest_keypackage(user_id)
-            if not user_kp_bytes:
-                print(f"⚠️ No key package for {username}, skipping")
-                continue
-            
-            print(f"  - Got user key package: {len(user_kp_bytes)} bytes")
-            
-            # Add to group (MLS operation) - THIS INCREMENTS THE EPOCH
-            welcome = api_client.add_member(group, user_id, creator_private_key)
-            current_epoch = group['epoch']  # Get the new epoch after adding
-            print(f"  - MLS add_member completed, new epoch: {current_epoch}")
-            
-            # Store welcome message
-            if welcome:
-                # Wrap the Welcome in an MLSMessage first
-                welcome_message = MLSMessage(
-                    wire_format=WireFormat.MLS_WELCOME,  # ← Use WELCOME format, not PUBLIC_MESSAGE!
-                    msg_content=welcome
-                )
-                
-                welcome_bytes = welcome_message.serialize()
-                resp = api_client.insert_welcome(
-                    group_id_b64=group_id_b64,
-                    new_member_id=user_id,
-                    welcome_bytes=welcome_bytes,
-                    token=token
-                )
-                print(f"  - Welcome delivery status: {resp.get('status', 'unknown')}")
-            
-            # Add to database group_members
-            member_result = api_client.add_group_member(
-                group_id_b64, user_id, leaf_index, token
-            )
-            if 'error' in member_result:
-                print(f"⚠️ Failed to add to database: {member_result['error']}")
-            else:
-                print(f"  - Added to group_members at leaf index {leaf_index}")
-                added_members.append(username)
-            
-            # After add_member, verify epoch incremented
-            old_epoch = current_epoch - 1
-            print(f"  - Epoch incremented from {old_epoch} to {current_epoch}")
-            
-            # Store the NEW epoch secret for this epoch
-            if api_client.store_epoch_secret(
-                group_id_b64=group_id_b64,
-                epoch=current_epoch,  # Use the current epoch after adding
-                epoch_secret=group['epoch_secret'],
-                token=token
-            ):
-                print(f"  - ✅ Epoch secret for epoch {current_epoch} stored")
-            else:
-                print(f"  - ❌ Failed to store epoch secret for epoch {current_epoch}")
-            
-            # After add_member, the tree has been updated
-            # Get the updated tree
-            updated_tree = group['tree']
-            updated_tree_serialized = updated_tree.serialize()
-            updated_tree_b64 = base64.b64encode(updated_tree_serialized).decode('ascii')
-
-            # Get the updated tree
-            updated_tree = group['tree']
-            updated_tree_serialized = updated_tree.serialize()
-            updated_tree_b64 = base64.b64encode(updated_tree_serialized).decode('ascii')          
-            
-            print(f"   - Updated creator's tree after adding {username}")
-            
-            leaf_index += 1
-        
-        
-        
-        # STEP 7: Store group state in crypto store for creator
-        if 'groups' not in user_crypto_store[creator_id]:
-            user_crypto_store[creator_id]['groups'] = {}
-        
-        # saving group data at the enhanced storage:
-        user_crypto_store[creator_id]['groups'][group_id_b64] = {
-            'epoch_secret': group['epoch_secret'],
-            'init_secret': group['init_secret'],
-            'epoch': group['epoch'],
-            'tree_serialized': updated_tree_b64,
-            'group_id_b64': group['group_id_b64'],
-            'my_leaf_index': 0,
-            'member_count': len(group['members']),
-            'group_last_epoch':group['epoch'],
-            'cipher_suite':cs
-        }
-        print(f"✅ Group tree saved to crypto store for creator (leaf index 0)")
-        print(f"🔑 Bob's epoch_secret (first 8): {group['epoch_secret'][:8].hex()}")
-        print(f"📝 For {username} we saved: {dict(user_crypto_store)} ")
-        
-        # STEP 9: Final epoch update (to ensure group's last_epoch is current)
-        print("\n--- STEP 9: Final group epoch update ---")
-
-        if api_client.update_group_epoch(
-            group_id_b64,
-            group['epoch'],  # Final epoch after all additions
-            token,
-            group['epoch_secret']
-        ):
-            print(f"✅ Group epoch updated to {group['epoch']} in database")
-        else:
-            print(f"⚠️ Failed to update final epoch")
-
-        # STEP 10: Final verification
-        print("\n--- STEP 10: Verifying database entries ---")
-        final_members = api_client.get_group_members(group_id_b64, token)
-        
-        if 'error' not in final_members:
-            member_count = len(final_members.get('members', []))
-            print(f"✅ Found {member_count} members in database")
-        else:
-            print(f"⚠️ Could not verify members: {final_members.get('error')}")
-        
-        print("\n" + "="*60)
-        print(f"✅ GROUP CREATION COMPLETE - {len(added_members)} members")
-        print("="*60)
-        
-        return jsonify({
-            'success': True,
-            'group_id': group_id_b64,
-            'group_name': group_name,
-            'member_count': len(added_members),
-            'members': added_members
-        })
-        
-    except Exception as e:
-        print(f"\n❌ ERROR creating group: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
     
 @app.route('/api/groups', methods=['GET'])
 def get_user_groups():
@@ -496,7 +241,7 @@ def get_user_groups():
         })
         
     except Exception as e:
-        print(f"❌ Error getting user groups: {str(e)}")
+       #print(f"❌ Error getting user groups: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/welcomes/pending', methods=['GET'])
@@ -518,9 +263,9 @@ def get_pending_welcomes():
         welcomes= welcomes_data.get('welcomes', [])
         
         for welcome in welcomes:
-            print("------------------------------")
-            print(f"Welcome ID:{welcome.get("id")}")
-            print("------------------------------")
+           #print("------------------------------")
+           print(f"Welcome ID:{welcome.get("id")}")
+           #print("------------------------------")
 
         return jsonify({
             'success': True,
@@ -528,284 +273,9 @@ def get_pending_welcomes():
         })
         
     except Exception as e:
-        print(f"❌ Error fetching pending welcomes: {str(e)}")
+       #print(f"❌ Error fetching pending welcomes: {str(e)}")
         return jsonify({'error': str(e)}), 500
     
-
-@app.route('/api/welcomes/process', methods=['POST'])
-def process_welcome():
-    """Process a welcome message and join a group"""
-    print("\n" + "="*60)
-    print("PROCESS WELCOME ENDPOINT CALLED")
-    print("="*60)
-    
-    # DEBUG: Check global user_crypto_store
-    print(f"🔍 Global user_crypto_store: {user_crypto_store}")
-    print(f"🔍 Global user_crypto_store type: {type(user_crypto_store)}")
-    print(f"🔍 Global user_crypto_store keys: {list(user_crypto_store.keys()) if user_crypto_store else 'Empty'}")
-    
-    data = request.json
-    print(f"📦 Request data: {data}")
-    
-    welcome_b64 = data.get('welcome_b64')
-    group_id_b64 = data.get('group_id')
-    welcome_id = data.get('welcome_id')
-    
-    if not welcome_id:
-        return jsonify({'error': 'Missing welcome_id. Cannot process.'}), 400
-    
-    print(f"📦 Extracted - welcome_b64 length: {len(welcome_b64) if welcome_b64 else 0}")
-    print(f"📦 Extracted - group_id_b64: {group_id_b64}")
-    print(f"Welcome ID:{welcome_id}")
-   
-
-    
-    if not welcome_b64 or not group_id_b64 :
-        return jsonify({'error': 'Missing required fields'}), 400
-    
-    # Get user info from session
-    user_id = session.get('user_id')
-    username = session.get('username')
-    
-    print(f"👤 Session user_id: {user_id}")
-    print(f"👤 Session username: {username}")
-    
-    if not user_id or not username:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    # DEBUG: Check user_crypto_store for this user
-    print(f"🔍 user_id in user_crypto_store? {user_id in user_crypto_store}")
-    
-    if user_id in user_crypto_store:
-        print(f"🔍 user_crypto_store[user_id] keys: {list(user_crypto_store[user_id].keys())}")
-        
-        if 'keys' in user_crypto_store[user_id]:
-            print(f"🔍 Available key refs: {list(user_crypto_store[user_id]['keys'].keys())}")
-        
-        # 1. Decode welcome
-        welcome_bytes = base64.b64decode(welcome_b64)
-        #welcome = Welcome.deserialize(bytearray(welcome_bytes))
-        welcome_bytearray = bytearray(welcome_bytes)
-
-        print(f"Received bytes first 16: {bytes(welcome_bytearray[:16]).hex()}   (len={len(welcome_bytes)})")
-
-        try:
-            # Step 1: Try to parse as MLSMessage (most likely case)
-            mls_msg = MLSMessage.deserialize(welcome_bytearray)
-            
-            print(f"Parsed as MLSMessage, wire_format={mls_msg.wire_format}")
-            
-            if hasattr(mls_msg, 'msg_content') and isinstance(mls_msg.msg_content, Welcome):
-                welcome = mls_msg.msg_content
-                print("→ Extracted Welcome from MLSMessage")
-            else:
-                print("→ MLSMessage content is not a Welcome → fallback")
-                raise ValueError("Not a Welcome inside MLSMessage")
-                
-        except Exception as e:
-            print(f"MLSMessage parse failed: {str(e)} → trying direct Welcome")
-            try:
-                welcome = Welcome.deserialize(welcome_bytearray)
-                print("→ Parsed directly as Welcome (unexpected)")
-            except Exception as e2:
-                return {"error": f"Cannot parse welcome: {str(e)} | {str(e2)}"}
-            
-        print(f"  Welcome deserialized ({len(welcome_bytes)} bytes, {len(welcome.secrets)} secrets)")
-        
-        if not welcome.secrets:
-            print("❌ No secrets found in welcome message")
-            return {"error": "No secrets in welcome"}
-        
-        # 2. Get the first encrypted secret
-        encrypted_secret = welcome.secrets[0]
-        print("  First encrypted secret details:")
-        
-        # 3. Extract the key package reference from the secret
-        key_package_ref = encrypted_secret.new_member.to_bytes().hex()
-            
-        if key_package_ref in user_crypto_store[user_id]['keys']:
-            print(f"✅ Key found for ref {key_package_ref[:16]}...")
-            private_key = user_crypto_store[user_id]['keys'][key_package_ref]['init_priv']
-            print(f"✅ Private key length: {len(private_key)}")
-        else:
-            print(f"❌ Key {key_package_ref[:16]}... NOT FOUND in stored keys")
-        
-    else:
-        print(f"❌ User {user_id} not found in user_crypto_store")
- 
-    token = session.get('token')
-    user_id = session.get('user_id')
-    username = session.get('username')
-    print(f"User {username} ({user_id}) is processing welcome for group {group_id_b64}")
-    print(f"Welcome message size: {len(welcome_b64) if welcome_b64 else 'N/A'} bytes")
-    
-    if not user_id or not username:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    try:
-        # Call the processing function and PASS the private key
-        result = api_client.process_single_welcome(
-            private_key=private_key,  # ← Pass the stored key!
-            welcome_b64=welcome_b64,
-            group_id_b64=group_id_b64
-        )
-        
-        if 'error' in result:
-            return jsonify({'error': result['error']}), 400
-
-        # Now we have crypto success → enrich with tree info
-        group_state = result['group_state_crypto']
-        group_info = result['group_info']
-
-         # 2. Get additional group details (including last_epoch from database)
-        # Call FastAPI's /groups/{group_id} endpoint to get full group details
-        group_details = api_client.get_group_details(group_id_b64, token)
-        
-        if 'error' in group_details:
-            return jsonify({'error': 'Failed to fetch Group Detailss'}), 500
-        
-        current_epoch = group_details.get('last_epoch', 0)
-        print(f"📊 Current group epoch from DB: {current_epoch}")
-        print(f"📊 Our epoch from welcome: {group_state['epoch']}")
-
-        # Try to get epoch secret from database
-        epoch_secret_data = api_client.get_epoch_secret(group_id_b64, current_epoch, token)
-        
-        if 'error' not in epoch_secret_data:
-            # Update epoch secret to current one
-            epoch_secret_bytes = base64.b64decode(epoch_secret_data.get('epoch_secret'))
-            print(f"   Fetched epoch secret (first 8): {epoch_secret_bytes[:8].hex()}...")
-            
-            # Update group_state with the CORRECT epoch secret
-            group_state['epoch_secret'] = epoch_secret_bytes
-            group_state['epoch'] = current_epoch
-            print(f"✅ Updated epoch secret to epoch {current_epoch}")
-        else:
-            print(f"⚠️ Could not fetch epoch secret: {epoch_secret_data.get('error')}")
-        # 3. Fetch group members to get MY leaf index
-        # ────────────────────────────────────────────────
-        members_data = api_client.get_group_members(group_id_b64, token)
-        if 'error' in members_data:
-            return jsonify({'error': f"Cannot fetch members: {members_data['error']}"}), 500
-
-        members = members_data.get('members', [])
-
-        if not members:
-            return jsonify({'error': 'Group has no members (impossible)'}), 500
-        
-        # Get the count
-        member_count = len(members)
-        
-
-        # Find your own leaf index
-        my_leaf_index = None
-        for member in members:
-            if member.get('user_id') == user_id:
-                my_leaf_index = member.get('leaf_index')
-                break
-
-        if my_leaf_index is None:
-            return jsonify({'error': 'Your user_id not found in group members'}), 500
-
-        print(f"   My leaf index = {my_leaf_index}")
-        group_state['group_last_epoch'] = current_epoch
-        group_state['member_count'] = len(members)
-        group_state['my_leaf_index'] = my_leaf_index
-
-        # Reconstruct / load ratchet tree (prefer extension, fallback to DB)
-        # ────────────────────────────────────────────────
-        tree = None
-
-        # First: try to get tree from GroupInfo extension (most accurate)
-        if hasattr(group_info, 'extensions') and group_info.extensions:
-            for ext in group_info.extensions:
-                if ext.extension_type == ExtensionType.ratchet_tree:
-                    tree_data = bytes(ext.extension_data.data)
-                    try:
-                        tree = RatchetTree.deserialize(bytearray(tree_data))
-                        print(f"✅ Ratchet tree loaded from GroupInfo extension ({len(tree_data)} bytes)")
-                        break
-                    except Exception as e:
-                        print(f"⚠️ Failed to deserialize ratchet_tree extension: {e}")
-
-        # Fallback: build minimal tree from known members & my position
-        if tree is None:
-            print("   No usable ratchet_tree extension → building from group members")
-            
-            # We already have members_data and my_leaf_index from earlier
-            max_leaf = max((m.get('leaf_index', 0) for m in members), default=0)
-            required_leaves = max(len(members), my_leaf_index + 1)
-
-            tree = RatchetTree()
-            tree.root = RatchetNode()  # must have root
-
-            # Extend until large enough
-            while len(tree.leaves) < required_leaves:
-                tree.extend()
-
-            # Mark your own leaf (placeholder)
-            if my_leaf_index < len(tree.leaves):
-                tree[my_leaf_index] = RatchetNode()  # or minimal LeafNode
-
-            print(f"   Built fallback tree: {len(tree.leaves)} leaves, your index: {my_leaf_index}")
-
-            pass
-        
-        # For each member, fetch their key package and extract leaf node
-        for member in members:
-            member_user_id = member['user_id']  # NOT user_id
-            leaf_index = member['leaf_index']
-            
-            kp_bytes = api_client.get_latest_keypackage(member_user_id)
-            if kp_bytes:
-                key_package = KeyPackage.deserialize(bytearray(kp_bytes))
-                leaf_node = key_package.content.leaf_node
-                tree[leaf_index] = leaf_node
-                print(f"  Added leaf {leaf_index} for {member['username']}")
-
-        # Serialize tree for storage
-        tree_serialized = tree.serialize()
-        tree_b64 = base64.b64encode(tree_serialized).decode('ascii')
-
-        # Add to group_state
-        group_state['tree'] = tree
-        group_state['tree_serialized'] = tree_b64
-        group_state['my_leaf_index'] = my_leaf_index
-        group_state['member_count'] = member_count
-        # Optional: store serialized version if you ever want persistence
-        # group_state['tree_serialized'] = base64.b64encode(tree.serialize()).decode('ascii')
-
-        # ────────────────────────────────────────────────
-        # Final storage
-        # ────────────────────────────────────────────────
-        if user_id not in user_crypto_store:
-            user_crypto_store[user_id] = {}
-        if 'groups' not in user_crypto_store[user_id]:
-            user_crypto_store[user_id]['groups'] = {}
-        print(f"🔑 Updated epoch_secret for {username}: {group_state['epoch_secret'][:8].hex()}")
-        user_crypto_store[user_id]['groups'][group_id_b64] = group_state
-        print(f"📝 For {username} we saved: {dict(user_crypto_store)} ")
-        response=api_client.mark_welcome_delivered(welcome_id, token)
-        # 1. Check if the 'status' key exists
-        if response.get("status") == "delivered":
-            print(f"Welcome delivered set True")
-        else:
-            # 2. If it's not 'delivered', raise an error manually
-            # This catches {"status": "error"} or even empty responses
-            actual_status = response.get("status", "Unknown Error")
-            raise ValueError(f"API failed to deliver. Expected 'delivered', got: {actual_status}")
-        
-        return jsonify({
-            'success': True,
-            'group_id': group_id_b64,
-            'epoch': group_state['epoch'],
-            'my_leaf_index': my_leaf_index,
-            'message': 'Successfully joined group with tree'
-        })
-        
-    except Exception as e:
-        print(f"❌ Error processing welcome: {str(e)}")
-        return jsonify({'error': str(e)}), 500
     
 def restore_group_tree(user_id, group_id_b64):
     """Restore group tree from stored state"""
@@ -820,69 +290,69 @@ def restore_group_tree(user_id, group_id_b64):
         try:
             tree_bytes = base64.b64decode(tree_b64)
             tree = RatchetTree.deserialize(bytearray(tree_bytes))
-            print(f"✅ Tree restored for group {group_id_b64}")
+           #print(f"✅ Tree restored for group {group_id_b64}")
             return tree
         except Exception as e:
-            print(f"⚠️ Failed to restore tree: {e}")
+           print(f"⚠️ Failed to restore tree: {e}")
     
     return None
 
 @app.route('/api/messages/send', methods=['POST'])
 def send_message():
-    print("="*50)
-    print("SEND MESSAGE ENDPOINT CALLED")
-    print("="*50)
+   #print("="*50)
+   #print("SEND MESSAGE ENDPOINT CALLED")
+   #print("="*50)
     
     data = request.json
-    print(f"Request data: {data}")
+   #print(f"Request data: {data}")
     
     group_id_hex = data.get('group_id_hex')
     message_text = data.get('message')
     
-    print(f"group_id_hex: {group_id_hex}")
-    print(f"message_text: {message_text}")
+   #print(f"group_id_hex: {group_id_hex}")
+   #print(f"message_text: {message_text}")
     
     user_id = session.get('user_id')
     token = session.get('token')
     
-    print(f"user_id: {user_id}")
-    print(f"token exists: {bool(token)}")
+   #print(f"user_id: {user_id}")
+   #print(f"token exists: {bool(token)}")
     
     if not user_id or not token:
-        print("❌ Not authenticated")
+       #print("❌ Not authenticated")
         return jsonify({'error': 'Not authenticated'}), 401
     
     if not group_id_hex or not message_text:
-        print("❌ Missing fields")
+       #print("❌ Missing fields")
         return jsonify({'error': 'Group ID hex and message required'}), 400
     
     # Convert hex to base64
     try:
         group_id_bytes = bytes.fromhex(group_id_hex)
         group_id_b64 = base64.b64encode(group_id_bytes).decode('ascii')
-        print(f"Converted to base64: {group_id_b64}")
+       #print(f"Converted to base64: {group_id_b64}")
     except Exception as e:
-        print(f"❌ Invalid hex: {e}")
+       #print(f"❌ Invalid hex: {e}")
         return jsonify({'error': f'Invalid group_id hex: {e}'}), 400
     
     # Check user_crypto_store
-    print(f"user_crypto_store keys: {list(user_crypto_store.keys()) if user_crypto_store else 'empty'}")
+   #print(f"user_crypto_store keys: {list(user_crypto_store.keys()) if user_crypto_store else 'empty'}")
     
     if user_id not in user_crypto_store:
-        print(f"❌ User {user_id} not in crypto store")
+       #print(f"❌ User {user_id} not in crypto store")
         return jsonify({'error': 'User not found'}), 400
     
     if 'groups' not in user_crypto_store[user_id]:
-        print(f"❌ No groups for user {user_id}")
+       #print(f"❌ No groups for user {user_id}")
         return jsonify({'error': 'No groups found'}), 400
     
     if group_id_b64 not in user_crypto_store[user_id]['groups']:
-        print(f"❌ Group {group_id_b64} not found in user's groups")
-        print(f"Available groups: {list(user_crypto_store[user_id]['groups'].keys())}")
+       #print(f"❌ Group {group_id_b64} not found in user's groups")
+       #print(f"Available groups: {list(user_crypto_store[user_id]['groups'].keys())}")
         return jsonify({'error': 'Group not found'}), 404
     
     group_state = user_crypto_store[user_id]['groups'][group_id_b64]
-    print(f"✅ Group state found, epoch: {group_state.get('epoch')}")
+   #print(f"✅ Group state found, epoch: {group_state.get('epoch')}")
     
     try:
         result = api_client.encrypt_and_send_message(
@@ -893,7 +363,7 @@ def send_message():
             group_state=group_state
         )
         
-        print(f"Result from encrypt_and_send_message: {result}")
+       #print(f"Result from encrypt_and_send_message: {result}")
         
         if 'error' in result:
             return jsonify({'error': result['error']}), 400
@@ -901,7 +371,7 @@ def send_message():
         return jsonify({'success': True, 'message': 'Message sent'})
         
     except Exception as e:
-        print(f"❌ Exception in encrypt_and_send_message: {str(e)}")
+       #print(f"❌ Exception in encrypt_and_send_message: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -929,7 +399,7 @@ def get_messages():
     except:
         return jsonify({'error': 'Invalid group_id hex'}), 400
     
-    print(f"📩 Getting messages for group: {group_id_b64} (hex: {group_id_hex})")
+   #print(f"📩 Getting messages for group: {group_id_b64} (hex: {group_id_hex})")
     
     # Get group state using base64
     if user_id not in user_crypto_store:
@@ -939,7 +409,7 @@ def get_messages():
         return jsonify({'messages': []})
     
     if group_id_b64 not in user_crypto_store[user_id]['groups']:
-        print(f"Group {group_id_b64} not found in user's groups")
+       #print(f"Group {group_id_b64} not found in user's groups")
         return jsonify({'messages': []})
     
     group_state = user_crypto_store[user_id]['groups'][group_id_b64]
@@ -950,29 +420,29 @@ def get_messages():
     if 'error' in result:
         return jsonify({'error': result['error']}), 400
 
-    print(f"📊 Received {len(result.get('messages', []))} messages from FastAPI")
+   #print(f"📊 Received {len(result.get('messages', []))} messages from FastAPI")
     
     # Log the first message for debugging
     if result.get('messages'):
         first_msg = result['messages'][0]
-        print(f"📊 First message - sender: {first_msg.get('sender_username')}")
-        print(f"📊 First message - ciphertext length: {len(first_msg.get('ciphertext', ''))}")
-        print(f"📊 First message - epoch: {first_msg.get('epoch')}")
+       #print(f"📊 First message - sender: {first_msg.get('sender_username')}")
+       #print(f"📊 First message - ciphertext length: {len(first_msg.get('ciphertext', ''))}")
+       #print(f"📊 First message - epoch: {first_msg.get('epoch')}")
     
     # Decrypt messages
     decrypted_messages = []
     
     for msg in result.get('messages', []):
         try:
-            print(f"🔓 Attempting to decrypt message from {msg.get('sender_username')}")
+           #print(f"🔓 Attempting to decrypt message from {msg.get('sender_username')}")
             decrypted = api_client.decrypt_message(msg, group_state, user_id)
             if decrypted:
-                print(f"✅ Decrypted: {decrypted.get('text')[:50]}")
+               #print(f"✅ Decrypted: {decrypted.get('text')[:50]}")
                 decrypted_messages.append(decrypted)
-            else:
-                print(f"❌ Decryption returned None")
+            #else:
+               #print(f"❌ Decryption returned None")
         except Exception as e:
-            print(f"⚠️ Failed to decrypt message: {e}")
+           #print(f"⚠️ Failed to decrypt message: {e}")
             import traceback
             traceback.print_exc()
             decrypted_messages.append({
@@ -1001,6 +471,288 @@ def debug_active_sessions():
             'user_id': user_id,
             'in_active_sessions': user_id in active_sessions if user_id else False
         }
+    })
+    
+
+@app.route('/api/welcomes/process', methods=['POST'])
+def process_welcome():
+    """Process a welcome message and join a group"""
+    data = request.json
+    
+    welcome_b64 = data.get('welcome_b64')
+    group_id_b64 = data.get('group_id')
+    welcome_id = data.get('welcome_id')
+    
+    if not welcome_id:
+        return jsonify({'error': 'Missing welcome_id'}), 400
+    
+    user_id = session.get('user_id')
+    username = session.get('username')
+    token = session.get('token')
+    
+    if not user_id or not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    # Find the correct private key for this welcome
+    if user_id not in user_crypto_store or 'keys' not in user_crypto_store[user_id]:
+        return jsonify({'error': 'No keys found'}), 400
+    
+    # Parse welcome to get key package reference
+    welcome_bytes = base64.b64decode(welcome_b64)
+    mls_msg = MLSMessage.deserialize(bytearray(welcome_bytes))
+    welcome = mls_msg.msg_content
+    
+    if not welcome.secrets:
+        return jsonify({'error': 'No secrets in welcome'}), 400
+    
+    encrypted_secret = welcome.secrets[0]
+    key_package_ref = encrypted_secret.new_member.to_bytes().hex()
+    
+    # Find matching private key
+    init_priv = None
+    for ref, key_data in user_crypto_store[user_id]['keys'].items():
+        if ref == key_package_ref or ref.endswith(key_package_ref[-16:]):
+            init_priv = key_data.get('init_priv')
+            break
+    
+    if not init_priv:
+        return jsonify({'error': 'No matching private key found'}), 400
+    
+    # 1. Get joiner_secret from Welcome
+    joiner_secret = api_client_3.process_welcome_simple(welcome_b64, init_priv)
+    
+    # 2. Get all members from database (sorted by leaf_index)
+    members_response = api_client.get_group_members(group_id_b64, token)
+    members = members_response.get('members', [])
+    members.sort(key=lambda m: m['leaf_index'])
+    
+    # 3. Get creator's leaf node to initialize tree
+    creator_id = members[0]['user_id']
+    creator_kp_bytes = api_client.get_latest_keypackage(creator_id)
+    if not creator_kp_bytes:
+        return jsonify({'error': 'Creator key package not found'}), 400
+    
+    creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
+    creator_leaf = creator_kp.content.leaf_node
+    
+    # 4. Create empty group using the working method
+    temp_group = api_client.create_empty_group(creator_leaf, "temp")
+    tree = temp_group['tree']
+    group_context = temp_group['group_context']
+    init_secret = temp_group['init_secret']
+    epoch_secret = temp_group['epoch_secret']
+    epoch = 0
+    
+    print(f"   Created empty tree with {len(tree.leaves)} leaves")
+    
+    # 5. Replay all member additions (except creator)
+    # We need to add members in order of their leaf_index
+    for member in members[1:]:  # Skip creator (leaf 0)
+        member_id = member.get('user_id')
+        member_name = member.get('username')
+        leaf_index = member.get('leaf_index')
+        
+        print(f"   Replaying addition of {member_name} at leaf {leaf_index}")
+        
+        # Fetch member's KeyPackage
+        member_kp_bytes = api_client.get_latest_keypackage(member_id)
+        if not member_kp_bytes:
+            continue
+        
+        member_kp = KeyPackage.deserialize(bytearray(member_kp_bytes))
+        member_leaf = member_kp.content.leaf_node
+        
+        # Add leaf to tree (simulate add_member without Welcome)
+        new_leaf_index = len(tree.leaves)
+        
+        # Extend tree if needed
+        while tree.nodes <= new_leaf_index * 2:
+            tree.extend()
+        
+        # Add the leaf
+        tree[new_leaf_index] = member_leaf
+        tree[new_leaf_index]._leaf_index = new_leaf_index
+        
+        # Update indices
+        for i in range(len(tree.leaves)):
+            if isinstance(tree.leaves[i], LeafNode):
+                tree.leaves[i]._leaf_index = i
+        
+        tree.update_leaf_index()
+        tree.update_node_index()
+        
+        # Derive new epoch secret (simulate epoch advancement)
+        # This is simplified - in real MLS, you'd derive from joiner_secret
+        # For now, we'll just increment epoch
+        epoch += 1
+        
+        print(f"      Tree now has {len(tree.leaves)} leaves, epoch {epoch}")
+    
+    # 6. Now we have the same tree as the creator
+    print(f"   Final tree has {len(tree.leaves)} leaves, {tree.nodes} nodes")
+    
+    # 7. Derive epoch_secret from the tree
+    # Ensure all leaf indices are set
+    for i in range(len(tree.leaves)):
+        if isinstance(tree.leaves[i], LeafNode):
+            tree.leaves[i]._leaf_index = i
+    
+    tree.update_leaf_index()
+    tree.update_node_index()
+    
+    # Now derive epoch_secret
+    root_secret = tree.hash(cs)
+    epoch_secret = DeriveSecret(cs, root_secret, b"epoch")
+    
+    # 8. Get current epoch from group details
+    group_details = api_client.get_group_details(group_id_b64, token)
+    current_epoch = group_details.get('last_epoch', epoch)
+    
+    # 9. Find my leaf index
+    my_leaf_index = None
+    for member in members:
+        if member.get('user_id') == user_id:
+            my_leaf_index = member.get('leaf_index')
+            break
+    
+    # 10. Store group state
+    if user_id not in user_crypto_store:
+        user_crypto_store[user_id] = {}
+    if 'groups' not in user_crypto_store[user_id]:
+        user_crypto_store[user_id]['groups'] = {}
+    
+    group_state = {
+        'epoch': current_epoch,
+        'tree': tree,
+        'epoch_secret': epoch_secret,
+        'group_id_b64': group_id_b64,
+        'my_leaf_index': my_leaf_index,
+        'member_count': len(members),
+        'cipher_suite': cs
+    }
+    
+    user_crypto_store[user_id]['groups'][group_id_b64] = group_state
+    
+    # Mark welcome as delivered
+    api_client.mark_welcome_delivered(welcome_id, token)
+    
+    print(f"✅ User {username} joined group with tree ({len(tree.leaves)} leaves)")
+    
+    return jsonify({
+        'success': True,
+        'group_id': group_id_b64,
+        'epoch': group_state['epoch'],
+        'my_leaf_index': group_state.get('my_leaf_index'),
+        'message': 'Successfully joined group'
+    })
+
+@app.route('/api/groups/create-with-online', methods=['POST'])
+def create_group_with_online():
+    """Create a group with all online users (excluding creator)"""
+    data = request.json
+    group_name = data.get('group_name', 'MLS Test Group')
+    online_users = data.get('users', [])
+    creator_id = session.get('user_id')
+    token = session.get('token')
+    creator_username = session.get('username')
+    
+    if not creator_id or not token:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    # STEP 1-3: Get creator's key package and create empty group
+    creator_kp_bytes = api_client.get_latest_keypackage(creator_id)
+    if not creator_kp_bytes:
+        return jsonify({'error': 'No key package found for creator'}), 400
+    
+    creator_private_key = user_crypto_store[creator_id].get('private_key')
+    if not creator_private_key:
+        return jsonify({'error': 'Private key not found'}), 400
+
+    creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
+    creator_leaf = creator_kp.content.leaf_node
+
+    # Create empty group
+    group = api_client.create_empty_group(creator_leaf, creator_username)
+    group_id_b64 = group['group_id_b64']
+    
+    # Save group to database
+    api_client.create_group_with_id(group_name, 1, token, group_id_b64)
+    api_client.add_group_member(group_id_b64, creator_id, 0, token)
+    
+    joiner_secrets = []
+    leaf_index = 1
+    
+    # Add each member to the tree (this updates the group object)
+    for user in online_users:
+        user_id = user.get('user_id')
+        username = user.get('username')
+        
+        user_kp_bytes = api_client.get_latest_keypackage(user_id)
+        if not user_kp_bytes:
+            continue
+        
+        # Add to tree and get joiner_secret
+        joiner_secret, group = api_client_3.add_member_to_tree(
+            group, user_id, creator_private_key
+        )
+        joiner_secrets.append((user_id, joiner_secret))
+        
+        # Add to database
+        api_client.add_group_member(group_id_b64, user_id, leaf_index, token)
+        leaf_index += 1
+    
+    # Create simple Welcomes
+    for user_id, joiner_secret in joiner_secrets:
+        welcome_bytes = api_client_3.create_welcome_simple(
+            group_id_b64, user_id, joiner_secret, token
+        )
+        if welcome_bytes:
+            api_client.insert_welcome(group_id_b64, user_id, welcome_bytes, token)
+    
+    # IMPORTANT: Use the EXISTING tree from the group object, don't rebuild!
+    final_tree = group['tree']
+    final_epoch = group['epoch']
+    
+    # Get members from database for count
+    members_response = api_client.get_group_members(group_id_b64, token)
+    members = members_response.get('members', [])
+    
+    # Fix leaf indices on the existing tree
+    for i in range(len(final_tree.leaves)):
+        if isinstance(final_tree.leaves[i], LeafNode):
+            final_tree.leaves[i]._leaf_index = i
+    
+    final_tree.update_leaf_index()
+    final_tree.update_node_index()
+    
+    # Derive epoch_secret from the tree
+    epoch_secret = api_client_2.derive_epoch_secret_from_tree(final_tree, cs)
+    
+    # Store final group state
+    if creator_id not in user_crypto_store:
+        user_crypto_store[creator_id] = {}
+    if 'groups' not in user_crypto_store[creator_id]:
+        user_crypto_store[creator_id]['groups'] = {}
+    
+    user_crypto_store[creator_id]['groups'][group_id_b64] = {
+        'epoch': final_epoch,
+        'tree': final_tree,
+        'epoch_secret': epoch_secret,
+        'group_id_b64': group_id_b64,
+        'my_leaf_index': 0,
+        'member_count': len(members),
+        'cipher_suite': cs
+    }
+    
+    # Update group epoch in database
+    api_client.update_group_epoch(group_id_b64, final_epoch, token)
+    
+    return jsonify({
+        'success': True,
+        'group_id': group_id_b64,
+        'group_name': group_name,
+        'member_count': len(online_users) + 1,
+        'members': [creator_username] + [u.get('username') for u in online_users]
     })
 
 if __name__ == '__main__':

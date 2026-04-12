@@ -35,8 +35,8 @@ def get_ed25519_keys():
     priv_bytes = raw_priv.private_bytes_raw()     # 32 bytes
     pub_bytes  = raw_pub.public_bytes_raw()       # 32 bytes
 
-    print(f"Raw private key length: {len(priv_bytes)} bytes")
-    print(f"Raw public key length : {len(pub_bytes)} bytes\n")
+   #print(f"Raw private key length: {len(priv_bytes)} bytes")
+   #print(f"Raw public key length : {len(pub_bytes)} bytes\n")
 
     # 2. Wrap it in KeyPair
     kp = KeyPair(
@@ -57,8 +57,8 @@ def get_x25519_pub_bytes():
     priv_bytes = raw_priv.private_bytes_raw()     # 32 bytes
     pub_bytes  = raw_pub.public_bytes_raw()       # 32 bytes
 
-    print(f"Raw private key length: {len(priv_bytes)} bytes")
-    print(f"Raw public key length : {len(pub_bytes)} bytes\n")
+   #print(f"Raw private key length: {len(priv_bytes)} bytes")
+   #print(f"Raw public key length : {len(pub_bytes)} bytes\n")
 
     return priv_bytes, pub_bytes
 
@@ -69,16 +69,16 @@ def get_x25519_pub_bytes():
 # ──────────────────────────────────────────────────────────────
 
 def GeneratKeyPackage(user_id: str):
-    print("=== Generating KeyPackage ===\n")
+   #print("=== Generating KeyPackage ===\n")
 
     cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 # same as before
 
     # 1. Load keys
     ed25519_priv_bytes, ed25519_pub_bytes = get_ed25519_keys()
-    print(f"{user_id}s private Key (hex): {ed25519_priv_bytes.hex()}\n")
+   #print(f"{user_id}s private Key (hex): {ed25519_priv_bytes.hex()}\n")
     
     x25519_priv_bytes, x25519_pub_bytes = get_x25519_pub_bytes()
-    print(f"X25519 init private key (first 16): {x25519_priv_bytes[:16].hex()}...")
+   #print(f"X25519 init private key (first 16): {x25519_priv_bytes[:16].hex()}...")
     # 3. Create credential
     if isinstance(user_id, bytes):
         user_id_str = user_id.decode('utf-8')
@@ -121,7 +121,7 @@ def GeneratKeyPackage(user_id: str):
     signature_leaf = tbs_leaf.signature(cipher_suite=cs, sign_key=ed25519_priv_bytes)
     leaf_node = LeafNode(value=payload, signature=VLBytes(signature_leaf))
 
-    print("LeafNode created and signed")
+   #print("LeafNode created and signed")
 
     # 7. KeyPackageTBS
     kptbs = KeyPackageTBS(
@@ -132,7 +132,7 @@ def GeneratKeyPackage(user_id: str):
         extensions=[]
     )
 
-    print("KeyPackageTBS created")
+   #print("KeyPackageTBS created")
 
     # 8. Sign TBS → full KeyPackage
     sign_content = SignContent(b"KeyPackageTBS", kptbs.serialize())
@@ -143,13 +143,13 @@ def GeneratKeyPackage(user_id: str):
         signature=VLBytes(signature_kp)
     )
 
-    print("Full KeyPackage created!")
-    print(f"Signature length: {len(signature_kp)} bytes")
+   #print("Full KeyPackage created!")
+   #print(f"Signature length: {len(signature_kp)} bytes")
 
     # 9. Serialize & save
     
     kp_bytes = key_package.serialize()
-    print(f"Full serialized KeyPackage length: {len(kp_bytes)} bytes")
-    print("First 32 bytes (hex):", kp_bytes[:32].hex())
+   #print(f"Full serialized KeyPackage length: {len(kp_bytes)} bytes")
+   #print("First 32 bytes (hex):", kp_bytes[:32].hex())
     return ed25519_priv_bytes, x25519_priv_bytes, kp_bytes
    
