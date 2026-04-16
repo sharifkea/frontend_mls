@@ -854,3 +854,93 @@ def decrypt_message(msg_data: dict, group_state: dict, user_id: str):
     except Exception as e:
         print(f"❌ Decryption failed: {type(e).__name__}: {e}")
         raise
+
+# Add this function to api_client.py
+
+def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, int, dict]:
+    """
+    Build the ratchet tree by replaying all member additions in order.
+    This matches the working method from process_welcome.
+    
+    Returns: (tree, current_epoch, members_info)
+    """
+    print(f"\n🌲 Building tree by replay for group {group_id_b64}")
+    
+    # 1. Get all members from database (sorted by leaf_index)
+    members_response = get_group_members(group_id_b64, token)
+    if 'error' in members_response:
+        raise ValueError(f"Failed to get members: {members_response['error']}")
+    
+    members = members_response.get('members', [])
+    if not members:
+        raise ValueError("No members found in group")
+    
+    members.sort(key=lambda m: m['leaf_index'])
+    
+    print(f"   Found {len(members)} members in database")
+    for m in members:
+        print(f"      Leaf {m['leaf_index']}: {m['username']}")
+    
+    # 2. Get creator's leaf node to initialize tree
+    creator_id = members[0]['user_id']
+    creator_kp_bytes = get_latest_keypackage(creator_id)
+    if not creator_kp_bytes:
+        raise ValueError("Creator key package not found")
+    
+    creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
+    creator_leaf = creator_kp.content.leaf_node
+    
+    # 3. Create empty group using the working method
+    temp_group = create_empty_group(creator_leaf, "temp")
+    tree = temp_group['tree']
+    epoch = 0
+    
+    print(f"   Created empty tree with {len(tree.leaves)} leaves")
+    
+    # 4. Replay all member additions (except creator)
+    for member in members[1:]:  # Skip creator (leaf 0)
+        member_id = member.get('user_id')
+        member_name = member.get('username')
+        leaf_index = member.get('leaf_index')
+        
+        print(f"   Replaying addition of {member_name} at leaf {leaf_index}")
+        
+        # Fetch member's KeyPackage
+        member_kp_bytes = get_latest_keypackage(member_id)
+        if not member_kp_bytes:
+            print(f"   ⚠️ No KeyPackage for {member_name}, skipping")
+            continue
+        
+        member_kp = KeyPackage.deserialize(bytearray(member_kp_bytes))
+        member_leaf = member_kp.content.leaf_node
+        
+        # Add leaf to tree (simulate add_member without Welcome)
+        new_leaf_index = len(tree.leaves)
+        
+        # Extend tree if needed
+        while tree.nodes <= new_leaf_index * 2:
+            tree.extend()
+        
+        # Add the leaf
+        tree[new_leaf_index] = member_leaf
+        tree[new_leaf_index]._leaf_index = new_leaf_index
+        
+        # Update indices
+        for i in range(len(tree.leaves)):
+            if isinstance(tree.leaves[i], LeafNode):
+                tree.leaves[i]._leaf_index = i
+        
+        tree.update_leaf_index()
+        tree.update_node_index()
+        
+        epoch += 1
+        print(f"      Tree now has {len(tree.leaves)} leaves, epoch {epoch}")
+    
+    # 5. Get current epoch from group details
+    group_details = get_group_details(group_id_b64, token)
+    current_epoch = group_details.get('last_epoch', epoch)
+    
+    print(f"   Final tree: {len(tree.leaves)} leaves, {tree.nodes} nodes")
+    print(f"   Current epoch: {current_epoch}")
+    
+    return tree, current_epoch, members

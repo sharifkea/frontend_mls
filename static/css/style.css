@@ -586,3 +586,19 @@ body {
     clear: both;
     display: table;
 }
+
+.join-group-btn {
+    width: 100%;
+    padding: 10px;
+    background: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-top: 10px;
+}
+
+.join-group-btn:hover {
+    background: #1976D2;
+}

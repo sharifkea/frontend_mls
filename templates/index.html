@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MLS Messenger</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <!--<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script> -->
     <script src="/static/js/app.js" defer></script>
 </head>
 <body>
@@ -63,15 +64,13 @@
             
             <!-- Groups List -->
             <div class="groups-section">
-                <h3>
-                    Your Groups
-                    <!-- Refresh button will be added here by JavaScript -->
-                </h3>
-                <div id="groups-list" class="groups-list">
-                    <!-- Groups will be loaded here -->
-                </div>
+                <h3>Your Groups</h3>
+                <div id="groups-list" class="groups-list"></div>
                 <button class="create-group-btn" onclick="createGroupWithOnline()">
                     Create Group with Online Users
+                </button>
+                <button class="join-group-btn" onclick="searchAndJoinGroup()" style="margin-top: 10px;">
+                    Join Group
                 </button>
             </div>
             

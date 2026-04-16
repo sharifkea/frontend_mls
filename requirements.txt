@@ -10,3 +10,7 @@ requests
 python-dotenv 
 cryptography
 pyhpke
+flask-socketio 
+eventlet
+python-socketio 
+asyncio

@@ -26,6 +26,62 @@ cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
 
 BASE_URL = "http://localhost:8000"  # Your FastAPI backend URL
 
+class MessageRatchet:
+    """Per-message ratchet for forward secrecy and PCS"""
+    
+    def __init__(self, cipher_suite, root_secret):
+        self.cipher_suite = cipher_suite
+        self.root_secret = root_secret
+        self.message_count = 0
+        self.current_key = None
+    
+    def next_key(self):
+        """Generate next message key using KDF chain"""
+        label = f"message {self.message_count}".encode()
+        self.current_key = DeriveSecret(self.cipher_suite, self.root_secret, label)
+        self.message_count += 1
+        return self.current_key
+
+def encrypt_with_ratchet(group_state, message_text, sender_leaf_index):
+    """Encrypt message with ratcheted key for PCS"""
+    tree = group_state['tree']
+    cipher_suite = group_state['cipher_suite']
+    
+    # Derive root_secret from tree
+    root_secret = tree.hash(cipher_suite)
+    
+    # Initialize or advance ratchet
+    if 'ratchet' not in group_state:
+        group_state['ratchet'] = MessageRatchet(cipher_suite, root_secret)
+    
+    # Get next message key
+    message_key = group_state['ratchet'].next_key()
+    
+    # Encrypt with this unique key
+    nonce = secrets.token_bytes(12)
+    aead = AESGCM(message_key)
+    
+    # Create FramedContent
+    group_id_bytes = base64.b64decode(group_state['group_id_b64'])
+    sender = Sender(sender_type=SenderType.member, leaf_index=sender_leaf_index)
+    
+    framed_content = FramedContent(
+        group_id=VLBytes(group_id_bytes),
+        epoch=group_state['epoch'],
+        sender=sender,
+        authenticated_data=VLBytes(b""),
+        content_type=ContentType.application,
+        application_data=VLBytes(message_text.encode('utf-8'))
+    )
+    
+    content_bytes = framed_content.serialize()
+    ciphertext = aead.encrypt(nonce, content_bytes, b"")
+    
+    # Store the generation number for decryption
+    generation = group_state['ratchet'].message_count - 1
+    
+    return ciphertext, nonce, generation
+
 def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer_index: int = 0):
     """
     Create a Commit + Welcome to add a new member to the group.

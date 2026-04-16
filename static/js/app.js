@@ -12,7 +12,10 @@ let currentGroupId = null;
 let messageRefreshInterval = null;
 let isRefreshing = false;
 let refreshRequestCount = 0;
-
+let socket = null;
+// static/js/app.js
+let ws = null;
+let wsReconnectInterval = null;
 // Store names
 const STORES = {
     SESSION: 'session',
@@ -38,6 +41,189 @@ function base64ToHex(base64) {
         console.error('Failed to convert base64 to hex:', e);
         return null;
     }
+}
+
+
+async function initWebSocket() {
+    console.log('🔍 initWebSocket called');
+    
+    // Get session data directly from sessionStorage (fastest)
+    let userId = sessionStorage.getItem('userId');
+    let token = sessionStorage.getItem('token');
+    let username = sessionStorage.getItem('username');
+    
+    // If not in sessionStorage, try IndexedDB
+    if (!userId || !token) {
+        const session = await loadSession();
+        if (session) {
+            userId = session.userId;
+            token = session.token;
+            username = session.username;
+        }
+    }
+    
+    console.log('🔍 userId:', userId);
+    console.log('🔍 token exists:', !!token);
+    
+    if (!userId || !token) {
+        console.log('❌ No valid session, WebSocket not initialized');
+        return;
+    }
+    
+    // Close existing connection
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+    }
+    
+    const wsUrl = `ws://localhost:8000/ws/${userId}?token=${token}&username=${encodeURIComponent(username)}`;
+    console.log('🔌 Connecting WebSocket to:', wsUrl.substring(0, 100) + '...');
+    ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+        console.log('✅ WebSocket connected to FastAPI');
+        if (wsReconnectInterval) {
+            clearInterval(wsReconnectInterval);
+            wsReconnectInterval = null;
+        }
+        ws.send(JSON.stringify({ type: 'get_online_users' }));
+    };
+    
+    ws.onmessage = async (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            console.log('📨 WebSocket message:', data);
+            
+            switch (data.type) {
+                case 'user_online':
+                    showToast(`${data.username} is now online`, 'info');
+                    // Refresh online users list if needed
+                    break;
+                    
+                case 'user_offline':
+                    showToast(`${data.username} went offline`, 'info');
+                    break;
+                    
+                case 'online_users':
+                    console.log('Online users:', data.users);
+                    // Update UI with online users if you have such a list
+                    break;
+                    
+                case 'new_user_ready_to_join':
+                    // Creator received notification about new user wanting to join
+                    if (confirm(`User ${data.new_username} wants to join group "${data.group_name}". Add them?`)) {
+                        // Call Flask endpoint to add member
+                        fetch('/api/groups/add-member', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${session.token}`
+                            },
+                            body: JSON.stringify({
+                                group_id: data.group_id,
+                                new_user_id: data.new_user_id,
+                                new_username: data.new_username
+                            })
+                        });
+                    }
+                    break;
+                    
+                case 'new_message':
+                    if (window.selectedGroup && window.selectedGroup.group_id === data.group_id) {
+                        loadMessages(window.selectedGroup.group_id_hex);
+                    }
+                    break;
+                    
+                case 'pong':
+                    // Heartbeat response
+                    break;
+
+                case 'join_request':
+                    console.log(`📢 Join request from ${data.requester_username} for group "${data.group_name}"`);
+                    
+                    showNotification(`Join request from ${data.requester_username}`, 'info');
+                    
+                    if (confirm(`User ${data.requester_username} wants to join group "${data.group_name}". Accept?`)) {
+                        const session = await loadSession();
+                        
+                        const response = await fetch('/api/groups/add-member', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${session.token}`
+                            },
+                            body: JSON.stringify({
+                                group_id: data.group_id,
+                                new_user_id: data.requester_id,
+                                new_username: data.requester_username
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            showToast(`Added ${data.requester_username} to group!`, 'success');
+                            loadUserGroups(session.userId, session.token);
+                        } else {
+                            showToast(`Error: ${result.error}`, 'error');
+                        }
+                    }
+                    break;
+
+                case 'group_update':
+                    console.log(`🔄 Group ${data.group_id} updated - new epoch: ${data.update_data.new_epoch}`);
+                    console.log(`   New member: ${data.update_data.new_member.username}`);
+                    
+                    const session = await loadSession();
+                    if (session) {
+                        // Show notification
+                        showToast(`Group updated! New member: ${data.update_data.new_member.username}`, 'info');
+                        
+                        // Refresh group state
+                        const response = await fetch('/api/groups/update-state', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${session.token}`
+                            },
+                            body: JSON.stringify({
+                                group_id: data.group_id,
+                                update_data: data.update_data
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        if (result.success) {
+                            console.log('✅ Group state updated successfully');
+                            // Refresh groups list and messages
+                            loadUserGroups(session.userId, session.token);
+                            if (window.selectedGroup && window.selectedGroup.group_id === data.group_id) {
+                                loadMessages(window.selectedGroup.group_id_hex);
+                            }
+                        }
+                    }
+                    break;
+                                    
+                default:
+                    console.log('Unknown message type:', data.type);
+            }
+        } catch (e) {
+            console.error('Failed to parse WebSocket message:', e);
+        }
+    };
+    
+    ws.onclose = () => {
+        console.log('🔌 WebSocket disconnected');
+        if (!wsReconnectInterval) {
+            wsReconnectInterval = setInterval(() => {
+                console.log('Attempting to reconnect WebSocket...');
+                initWebSocket();
+            }, 5000);
+        }
+    };
+    
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
 }
 
 // Convert hex to base64
@@ -98,6 +284,14 @@ async function saveSession(userId, token, username) {
         return;
     }
     
+    console.log('💾 Saving session for user:', userId);
+    
+    // 1. Save to sessionStorage (immediate, synchronous)
+    sessionStorage.setItem('userId', userId);
+    sessionStorage.setItem('token', token);
+    sessionStorage.setItem('username', username);
+    
+    // 2. Save to IndexedDB (for persistence across sessions)
     const db = await initDB();
     const tx = db.transaction(STORES.SESSION, 'readwrite');
     const store = tx.objectStore(STORES.SESSION);
@@ -110,19 +304,40 @@ async function saveSession(userId, token, username) {
         timestamp: Date.now()
     });
     
-    sessionStorage.setItem('userId', userId);
-    sessionStorage.setItem('token', token);
-    sessionStorage.setItem('username', username);
+    console.log('✅ Session saved to both storages');
 }
 
 async function loadSession() {
+    // Try sessionStorage first (faster, synchronous)
+    const userId = sessionStorage.getItem('userId');
+    const token = sessionStorage.getItem('token');
+    const username = sessionStorage.getItem('username');
+    
+    if (userId && token) {
+        console.log('Session loaded from sessionStorage:', userId);
+        return { userId, token, username };
+    }
+    
+    // Fallback to IndexedDB
+    console.log('Session not in sessionStorage, trying IndexedDB...');
     const db = await initDB();
     const tx = db.transaction(STORES.SESSION, 'readonly');
     const store = tx.objectStore(STORES.SESSION);
     
     return new Promise((resolve) => {
         const request = store.get('current');
-        request.onsuccess = () => resolve(request.result || null);
+        request.onsuccess = () => {
+            const result = request.result;
+            if (result) {
+                // Cache to sessionStorage for next time
+                sessionStorage.setItem('userId', result.userId);
+                sessionStorage.setItem('token', result.token);
+                sessionStorage.setItem('username', result.username);
+                resolve(result);
+            } else {
+                resolve(null);
+            }
+        };
         request.onerror = () => resolve(null);
     });
 }
@@ -284,13 +499,35 @@ async function handleLogin() {
         if (data.error) {
             errorDiv.textContent = data.error;
         } else {
+            // Save session to both storage types
             await saveSession(data.user_id, data.token, data.username);
             
+            // CRITICAL: Add a small delay to ensure IndexedDB write completes
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Verify session was saved
+            const testSession = await loadSession();
+            console.log('Session after save:', testSession);
+            
+            // Only proceed if session is valid
+            if (!testSession || !testSession.userId) {
+                console.error('Session verification failed!');
+                errorDiv.textContent = 'Session error. Please try again.';
+                return;
+            }
+            
+            // Update UI first
             document.getElementById('auth-container').style.display = 'none';
             document.getElementById('app-container').style.display = 'block';
             document.getElementById('user-display').textContent = data.username;
             
             initializeUI();
+            
+            // Initialize WebSocket AFTER UI is ready and session is confirmed
+            initWebSocket();
+            startHeartbeat();
+            
+            // Load data
             await loadUserGroups(data.user_id, data.token);
             await checkForPendingWelcomes();
         }
@@ -299,7 +536,6 @@ async function handleLogin() {
         errorDiv.textContent = 'Network error';
     }
 }
-
 
 // ==================== GROUP MANAGEMENT ====================
 
@@ -852,6 +1088,88 @@ function stopWelcomePolling() {
         console.log('🛑 Stopped welcome polling');
     }
 }
+
+function startHeartbeat() {
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+    }
+
+// Search for and join a group
+async function searchAndJoinGroup() {
+    const session = await loadSession();
+    if (!session) {
+        alert('Please login first');
+        return;
+    }
+    
+    const groupName = prompt('Enter group name to search:', 'MLS Test Group');
+    if (!groupName) return;
+    
+    try {
+        showToast('Searching for group...', 'info');
+        
+        // Call Flask endpoint (same origin, no CORS issue)
+        const response = await fetch(`/api/groups/search?group_name=${encodeURIComponent(groupName)}`, {
+            headers: { 'Authorization': `Bearer ${session.token}` }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Search results:', data);
+        
+        if (!data.groups || data.groups.length === 0) {
+            showToast(`No group found with name "${groupName}"`, 'error');
+            return;
+        }
+        
+        const group = data.groups[0];
+        
+        if (confirm(`Do you want to request to join "${group.group_name}"?\n\nCreator: ${group.creator_username}\nMembers: ${group.member_count}`)) {
+            await sendJoinRequest(group, session.token);
+        }
+        
+    } catch (error) {
+        console.error('Error searching group:', error);
+        showToast('Error searching for group: ' + error.message, 'error');
+    }
+}
+
+async function sendJoinRequest(group, token) {
+    try {
+        // Call Flask endpoint to request join
+        const response = await fetch('/api/groups/request-join', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                group_id: group.group_id,
+                group_name: group.group_name
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(`Join request sent to ${group.creator_username}!`, 'success');
+        } else {
+            showToast(`Error: ${data.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error sending join request:', error);
+        showToast('Error sending join request', 'error');
+    }
+}
+
+
+
 
 // ==================== WINDOW EVENT HANDLERS ====================
 

@@ -26,15 +26,13 @@ cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
 
 BASE_URL = "http://localhost:8000"  # Your FastAPI backend URL
 
-def build_tree_from_database(group_id_b64: str, token: str, 
-                              existing_tree: RatchetTree = None) -> tuple[RatchetTree, int, dict]:
+def build_tree_from_database(group_id_b64: str, token: str, existing_tree: RatchetTree = None) -> tuple[RatchetTree, int, dict]:
     """
-    Build/update tree using existing tree as base.
-    If no existing tree provided, use the tree from group state.
+    Build tree from database - ALWAYS builds from scratch for consistency.
     """
-    print(f"\n🌲 Building/updating tree for group {group_id_b64}")
+    print(f"\n🌲 Building tree from database for group {group_id_b64}")
     
-    # 1. Get members from database
+    # Get members from database
     members_response = api_client.get_group_members(group_id_b64, token)
     if 'error' in members_response:
         raise ValueError(f"Failed to get members: {members_response['error']}")
@@ -46,40 +44,56 @@ def build_tree_from_database(group_id_b64: str, token: str,
     for m in members:
         print(f"      Leaf {m['leaf_index']}: {m['username']}")
     
-    # 2. If we have an existing tree, use it and update leaves
-    if existing_tree is not None:
-        tree = existing_tree
-        print(f"   Using existing tree with {len(tree.leaves)} leaves")
-        
-        # Update each leaf node with latest KeyPackage data
-        for member in members:
-            leaf_index = member.get('leaf_index')
-            user_id = member.get('user_id')
-            username = member.get('username')
-            
-            if leaf_index < len(tree.leaves):
-                kp_bytes = api_client.get_latest_keypackage(user_id)
-                if kp_bytes:
-                    key_package = KeyPackage.deserialize(bytearray(kp_bytes))
-                    leaf_node = key_package.content.leaf_node
-                    leaf_node._leaf_index = leaf_index
-                    tree[leaf_index] = leaf_node
-                    print(f"   ✅ Updated leaf {leaf_index}: {username}")
-        
-        tree.update_leaf_index()
-        tree.update_node_index()
-        
-    else:
-        # No existing tree - we need to get it from the group state
-        # This should not happen for creator, but for joiners
-        print(f"   No existing tree provided, cannot build from scratch")
-        raise ValueError("Cannot build tree from scratch - need existing tree")
+    # ALWAYS BUILD FROM SCRATCH
+    print(f"   Building tree from scratch for {len(members)} members")
     
-    # 3. Get current epoch
+    # Get creator's leaf node to initialize tree
+    creator_id = members[0]['user_id']
+    creator_kp_bytes = api_client.get_latest_keypackage(creator_id)
+    if not creator_kp_bytes:
+        raise ValueError("Creator key package not found")
+    
+    creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
+    creator_leaf = creator_kp.content.leaf_node
+    
+    # Create empty group using the working method
+    from api_client import create_empty_group
+    temp_group = create_empty_group(creator_leaf, "temp")
+    tree = temp_group['tree']
+    
+    print(f"   Created base tree with {len(tree.leaves)} leaves")
+    
+    # Add all members (excluding creator, already at leaf 0)
+    for member in members[1:]:
+        leaf_index = member.get('leaf_index')
+        user_id = member.get('user_id')
+        username = member.get('username')
+        
+        kp_bytes = api_client.get_latest_keypackage(user_id)
+        if not kp_bytes:
+            print(f"   ⚠️ No KeyPackage for {username}, skipping")
+            continue
+        
+        key_package = KeyPackage.deserialize(bytearray(kp_bytes))
+        leaf_node = key_package.content.leaf_node
+        leaf_node._leaf_index = leaf_index
+        
+        # Ensure tree is large enough
+        while len(tree.leaves) <= leaf_index:
+            tree.extend()
+            print(f"      Extended tree to {len(tree.leaves)} leaves")
+        
+        tree[leaf_index] = leaf_node
+        print(f"   ✅ Added leaf {leaf_index}: {username}")
+    
+    tree.update_leaf_index()
+    tree.update_node_index()
+    
+    # Get current epoch
     group_details = api_client.get_group_details(group_id_b64, token)
     current_epoch = group_details.get('last_epoch', 0)
     
-    print(f"   Tree has {len(tree.leaves)} leaves, {tree.nodes} nodes")
+    print(f"   Final tree: {len(tree.leaves)} leaves, {tree.nodes} nodes")
     print(f"   Current epoch: {current_epoch}")
     
     return tree, current_epoch, members
