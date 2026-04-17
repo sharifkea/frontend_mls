@@ -1,0 +1,73 @@
+#app.py #Routes
+/	Serve index.html
+/api/register	User registration
+/api/login	User login
+/api/logout	User logout
+/api/groups	Get user's groups
+/api/groups/update-state	Update group state after commit
+/api/groups/add-member	Add member to group
+/api/groups/create-with-online	Create group with online users
+/api/groups/search	Search for groups
+/api/groups/request-join	Request to join group
+/api/messages/send	Send encrypted message
+/api/messages/get	Get and decrypt messages
+/api/welcomes/pending	Get pending welcomes
+/api/welcomes/process	Process welcome and join
+/api/online-users	Get online users
+/api/debug/active-sessions	Debug - KEEP for now
+/api/debug/user-state	Debug - KEEP for now
+
+#app.py #Function	
+register()	Route handler
+login()	Route handler
+logout()	Route handler
+get_user_groups()	Route handler
+update_group_state()	Route handler
+add_member_to_group()	Route handler
+create_group_with_online()	Route handler
+search_groups()	Route handler
+request_join_group()	Route handler
+send_message()	Route handler
+get_messages()	Route handler
+get_pending_welcomes()	Route handler
+process_welcome()	Route handler
+get_online_users()	Route handler
+debug_active_sessions()	Debug route
+debug_user_state()	Debug route
+restore_group_tree()	Helper - called? Check usage
+
+#api_client.py
+register_user()	app.py, frontend	User registration
+login_user()	app.py	User login
+get_user_by_username()	Possibly unused but keep for future	User lookup
+upload_keypackage()	app.py (/api/login)	Upload key package
+get_latest_keypackage()	api_client_2.py, api_client_3.py, app.py	Get user's key package
+get_my_groups()	app.py (/api/groups)	Get user's groups
+get_group_details()	api_client.py, app.py	Get group info
+get_group_members()	api_client.py, app.py, api_client_3.py	Get group members
+add_group_member()	app.py (add_member_to_group)	Add member to group
+update_group_epoch()	app.py (add_member_to_group)	Update group epoch
+insert_welcome()	app.py (add_member_to_group)	Store welcome for new member
+get_pending_welcomes()	app.py (/api/welcomes/pending)	Get pending welcomes
+mark_welcome_delivered()	app.py (process_welcome)	Mark welcome as delivered
+create_empty_group()	app.py, api_client_3.py	Create initial group
+build_tree_by_replay()	app.py (multiple places)	CRITICAL - Build tree from DB
+encrypt_and_send_message()	app.py (/api/messages/send)	Encrypt and send message
+decrypt_message()	app.py (/api/messages/get)	Decrypt received message
+get_group_messages()	app.py get_messages() 
+
+#api_client_2.py
+MessageRatchet class	Not yet integrated - KEEP for future	Per-message ratchet
+encrypt_with_ratchet()	Not yet integrated - KEEP for future	Ratcheted encryption
+derive_epoch_secret_from_tree()	app.py (multiple), api_client.py	CRITICAL - Derive epoch secret
+repair_tree_indices()	Called? Check usage	Tree index repair
+get_tree_hash()	Debugging - KEEP	Tree hash for debugging
+get_tree_details()	Debugging - KEEP	Tree details for debugging
+add_member_to_tree_only()	Called? Check usage	Add member without welcome
+create_welcome_for_member()	Called? Check usage	Create welcome from final tree
+
+#api_client_3
+create_welcome_simple() add_member_to_group() and create_group_with_online()
+process_welcome_simple() process_welcome()
+add_member_to_tree() used by create_group_with_online()
+

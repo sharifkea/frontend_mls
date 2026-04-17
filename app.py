@@ -576,26 +576,6 @@ def get_pending_welcomes():
        #print(f"❌ Error fetching pending welcomes: {str(e)}")
         return jsonify({'error': str(e)}), 500
     
-    
-def restore_group_tree(user_id, group_id_b64):
-    """Restore group tree from stored state"""
-    if user_id not in user_crypto_store:
-        return None
-    
-    groups = user_crypto_store[user_id].get('groups', {})
-    group_state = groups.get(group_id_b64, {})
-    tree_b64 = group_state.get('tree_serialized')
-    
-    if tree_b64:
-        try:
-            tree_bytes = base64.b64decode(tree_b64)
-            tree = RatchetTree.deserialize(bytearray(tree_bytes))
-           #print(f"✅ Tree restored for group {group_id_b64}")
-            return tree
-        except Exception as e:
-           print(f"⚠️ Failed to restore tree: {e}")
-    
-    return None
 
 @app.route('/api/messages/send', methods=['POST'])
 def send_message():
