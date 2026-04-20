@@ -212,10 +212,6 @@ def update_group_state():
         # Build tree using the working replay method
         tree, current_epoch, members = api_client.build_tree_by_replay(group_id_b64, token)
         
-        # Now derive epoch_secret
-        root_secret = tree.hash(cs)
-        epoch_secret = DeriveSecret(cs, root_secret, b"epoch")
-        
         # Find my leaf index
         my_leaf_index = None
         for member in members:
@@ -223,24 +219,23 @@ def update_group_state():
                 my_leaf_index = member.get('leaf_index')
                 break
         
-        # Store group state
+        # Initialize group state with ratchet
         if user_id not in user_crypto_store:
             user_crypto_store[user_id] = {}
         if 'groups' not in user_crypto_store[user_id]:
             user_crypto_store[user_id]['groups'] = {}
         
-        user_crypto_store[user_id]['groups'][group_id_b64] = {
-            'epoch': current_epoch,
-            'tree': tree,
-            'epoch_secret': epoch_secret,
-            'group_id_b64': group_id_b64,
-            'my_leaf_index': my_leaf_index,
-            'member_count': len(members),
-            'cipher_suite': cs,
-            'group_last_epoch': current_epoch
-        }
+        # ✅ USE NEW FUNCTION
+        user_crypto_store[user_id]['groups'][group_id_b64] = initialize_group_state_with_ratchet(
+            group_id_b64=group_id_b64,
+            tree=tree,
+            cipher_suite=cs,
+            my_leaf_index=my_leaf_index,
+            current_epoch=current_epoch,
+            my_user_id=user_id
+        )
         
-        print(f"✅ User {user_id} group state updated")
+        print(f"✅ User {user_id} group state updated with ratchet")
         print(f"   Tree has {len(tree.leaves)} leaves, epoch {current_epoch}")
         
         return jsonify({'success': True})
@@ -367,15 +362,15 @@ def add_member_to_group():
         api_client.update_group_epoch(group_id_b64, new_epoch, token)
         
         # 11. Update creator's group state
-        user_crypto_store[creator_id]['groups'][group_id_b64] = {
-            'epoch': new_epoch,
-            'tree': new_tree,
-            'epoch_secret': new_epoch_secret,
-            'group_id_b64': group_id_b64,
-            'my_leaf_index': 0,
-            'member_count': len(current_members) + 1,
-            'cipher_suite': cs
-        }
+        
+        user_crypto_store[creator_id]['groups'][group_id_b64] = api_client.initialize_group_state_with_ratchet(
+            group_id_b64=group_id_b64,
+            tree=new_tree,
+            cipher_suite=cs,
+            my_leaf_index=0,  # Creator's leaf index
+            current_epoch=new_epoch,
+            my_user_id=creator_id
+        )
         
         # 12. Create a Commit message for existing members (Alice) to update their state
         # This is simplified - in real MLS, you'd create a proper Commit
@@ -576,6 +571,26 @@ def get_pending_welcomes():
        #print(f"❌ Error fetching pending welcomes: {str(e)}")
         return jsonify({'error': str(e)}), 500
     
+    
+def restore_group_tree(user_id, group_id_b64):
+    """Restore group tree from stored state"""
+    if user_id not in user_crypto_store:
+        return None
+    
+    groups = user_crypto_store[user_id].get('groups', {})
+    group_state = groups.get(group_id_b64, {})
+    tree_b64 = group_state.get('tree_serialized')
+    
+    if tree_b64:
+        try:
+            tree_bytes = base64.b64decode(tree_b64)
+            tree = RatchetTree.deserialize(bytearray(tree_bytes))
+           #print(f"✅ Tree restored for group {group_id_b64}")
+            return tree
+        except Exception as e:
+           print(f"⚠️ Failed to restore tree: {e}")
+    
+    return None
 
 @app.route('/api/messages/send', methods=['POST'])
 def send_message():
@@ -829,20 +844,20 @@ def process_welcome():
             break
     
     # 10. Store group state
+    # ✅ USE NEW FUNCTION
     if user_id not in user_crypto_store:
         user_crypto_store[user_id] = {}
     if 'groups' not in user_crypto_store[user_id]:
         user_crypto_store[user_id]['groups'] = {}
     
-    group_state = {
-        'epoch': current_epoch,
-        'tree': tree,
-        'epoch_secret': epoch_secret,
-        'group_id_b64': group_id_b64,
-        'my_leaf_index': my_leaf_index,
-        'member_count': len(members),
-        'cipher_suite': cs
-    }
+    group_state = api_client.initialize_group_state_with_ratchet(
+        group_id_b64=group_id_b64,
+        tree=tree,
+        cipher_suite=cs,
+        my_leaf_index=my_leaf_index,
+        current_epoch=current_epoch,
+        my_user_id=user_id
+    )
     
     user_crypto_store[user_id]['groups'][group_id_b64] = group_state
     
@@ -947,15 +962,14 @@ def create_group_with_online():
     if 'groups' not in user_crypto_store[creator_id]:
         user_crypto_store[creator_id]['groups'] = {}
     
-    user_crypto_store[creator_id]['groups'][group_id_b64] = {
-        'epoch': final_epoch,
-        'tree': final_tree,
-        'epoch_secret': epoch_secret,
-        'group_id_b64': group_id_b64,
-        'my_leaf_index': 0,
-        'member_count': len(members),
-        'cipher_suite': cs
-    }
+    user_crypto_store[creator_id]['groups'][group_id_b64] = api_client.initialize_group_state_with_ratchet(
+        group_id_b64=group_id_b64,
+        tree=final_tree,
+        cipher_suite=cs,
+        my_leaf_index=0,  # Creator is leaf 0
+        current_epoch=final_epoch,
+        my_user_id=creator_id
+    )
     
     # Update group epoch in database
     api_client.update_group_epoch(group_id_b64, final_epoch, token)
