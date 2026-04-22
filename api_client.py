@@ -718,51 +718,83 @@ def mark_welcome_delivered(welcome_id: str, token: str):
         return {"error": str(e)}
     
 
+
+
 def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, user_id: str, group_state: dict):
-    """Encrypt with ratchet and send message"""
     try:
         print(f"\n{'='*60}")
-        print(f"🔐 ENCRYPTING MESSAGE with ratchet - User: {user_id[:8]}...")
+        print(f"🔐 ENCRYPTING MESSAGE - User: {user_id[:8]}...")
         print(f"{'='*60}")
         
-        # Get or restore tree
+        # Get tree from group_state
         tree = group_state.get('tree')
         if tree is None:
+            # Try to restore from serialized
             tree_b64 = group_state.get('tree_serialized')
             if tree_b64:
                 tree_bytes = base64.b64decode(tree_b64)
                 tree = RatchetTree.deserialize(bytearray(tree_bytes))
+                print(f"   Restored tree from serialized ({len(tree.leaves)} leaves)")
                 group_state['tree'] = tree
             else:
                 return {"error": "No tree in group_state"}
         
-        # Ensure epoch is set
+        # Print tree details for this user
+        tree_hash = api_client_2.get_tree_hash(tree, group_state['cipher_suite'])
+        print(f"   🌲 Tree hash: {tree_hash[:16]}...")
+        print(f"   🌲 Leaves count: {len(tree.leaves)}")
+        print(f"   🌲 Nodes count: {tree.nodes}")
+        
+        # Verify leaf indices
+        for i, leaf in enumerate(tree.leaves):
+            if isinstance(leaf, LeafNode):
+                if hasattr(leaf, '_leaf_index'):
+                    print(f"   🌿 Leaf {i}: index={leaf._leaf_index}")
+                else:
+                    print(f"   🌿 Leaf {i}: NO _leaf_index!")
+        
+        # Derive epoch secret
+        #epoch_secret = api_client_2.derive_epoch_secret_from_tree(tree, group_state['cipher_suite'])
+        epoch_secret = group_state.get('epoch_secret')
         epoch = group_state.get('group_last_epoch', group_state.get('epoch', 0))
-        
-        # Check my_leaf_index exists
         my_leaf_index = group_state.get('my_leaf_index')
-        if my_leaf_index is None:
-            return {"error": "No leaf index found for user"}
+        cipher_suite = group_state['cipher_suite']
+        group_id_bytes = base64.b64decode(group_id_b64)
         
-        # Encrypt with ratchet - NOW RETURNS 4 VALUES
-        from api_client_2 import encrypt_with_ratchet
-        ciphertext_b64, nonce_b64, generation, sender_leaf_index = encrypt_with_ratchet(
-            group_state, message_text, user_id
+        print(f"   Epoch: {epoch}")
+        print(f"   My leaf index: {my_leaf_index}")
+        print(f"   Message: {message_text[:50]}...")
+        print(f"🔐 Encrypting message using derived epoch_secret (epoch {epoch})")
+
+        sender = Sender(sender_type=SenderType.member, leaf_index=my_leaf_index)
+        
+        framed_content = FramedContent(
+            group_id=VLBytes(group_id_bytes),
+            epoch=epoch,
+            sender=sender,
+            authenticated_data=VLBytes(b""),
+            content_type=ContentType.application,
+            application_data=VLBytes(message_text.encode('utf-8'))
         )
+        content_bytes = framed_content.serialize()
+        message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
         
-        # Store message with generation number AND sender_leaf_index
+        nonce = secrets.token_bytes(12)
+        aead = AESGCM(message_key)
+        ciphertext = aead.encrypt(nonce, content_bytes, b"")
+        
+        # 6. Store ONLY the ciphertext and nonce (NOT wrapped in MLSMessage!)
         payload = {
             "group_id": group_id_b64,
-            "ciphertext": ciphertext_b64,
-            "nonce": nonce_b64,
+            "ciphertext": base64.b64encode(ciphertext).decode('ascii'),  # ← Only the encrypted content
+            "nonce": base64.b64encode(nonce).decode('ascii'),           # ← The nonce
             "epoch": epoch,
             "content_type": 1,
-            "wire_format": 2,
-            "message_generation": generation,
-            "sender_leaf_index": sender_leaf_index  # ← CRITICAL: Add this!
+            "wire_format": 2
         }
         
-        print(f"   📤 Sending: epoch={epoch}, gen={generation}, leaf={sender_leaf_index}")
+        #print(f"   ciphertext length: {len(ciphertext)}")
+        #print(f"   nonce: {nonce.hex()}")
         
         response = requests.post(
             f"{BASE_URL}/messages",
@@ -771,10 +803,9 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         )
         
         if response.status_code == 200:
-            print(f"✅ Message sent (generation {generation})")
-            return {"success": True, "message": "Message sent", "generation": generation}
+            #print(f"✅ Message sent successfully")
+            return {"success": True, "message": "Message sent"}
         else:
-            print(f"❌ Server error: {response.status_code} - {response.text}")
             return {"error": f"Server error: {response.text}"}
         
     except Exception as e:
@@ -783,10 +814,39 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         return {"error": str(e)}
 
 def decrypt_message(msg_data: dict, group_state: dict, user_id: str):
-    """Decrypt message using ratchet with generation number"""
     try:
-        from api_client_2 import decrypt_with_ratchet  
-        return decrypt_with_ratchet(msg_data, group_state, user_id)
+        #print(f" 🔓 Decrypting with tree(first 8 bytes): {group_state['tree'][:8]}")
+        #epoch_secret = api_client_2.derive_epoch_secret_from_tree(group_state['tree'], group_state['cipher_suite'])
+        epoch_secret = group_state.get('epoch_secret')
+        cipher_suite = group_state['cipher_suite']
+        epoch = msg_data.get('epoch', group_state.get('epoch', 0))
+
+        print(f"Decrypting message - epoch {epoch}, sender: {msg_data.get('sender_username')}")
+
+        message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
+        print(f"Message key (first 8 bytes): {message_key[:8].hex()}")
+
+        ciphertext = base64.b64decode(msg_data['ciphertext'])
+        nonce = base64.b64decode(msg_data['nonce'])
+
+        aead = AESGCM(message_key)
+        plaintext = aead.decrypt(nonce, ciphertext, b"")
+        
+        framed = FramedContent.deserialize(bytearray(plaintext))
+        
+        if hasattr(framed, 'application_data'):
+            message_text = framed.application_data.data.decode('utf-8')
+        else:
+            message_text = "[No text]"
+
+        return {
+            'message_id': msg_data.get('message_id'),
+            'sender_username': msg_data.get('sender_username', 'Unknown'),
+            'sender_leaf_index': framed.sender.leaf_index,
+            'text': message_text,
+            'epoch': epoch,
+            'created_at': msg_data.get('created_at')
+        }
         
     except Exception as e:
         print(f"❌ Decryption failed: {type(e).__name__}: {e}")
@@ -881,39 +941,3 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     print(f"   Current epoch: {current_epoch}")
     
     return tree, current_epoch, members
-
-# Add this function to app.py
-
-def initialize_group_state_with_ratchet(group_id_b64: str, tree, cipher_suite, my_leaf_index: int, current_epoch: int, my_user_id: str):
-    """
-    Initialize group state with ratchet manager for PCS.
-    Stores both epoch_secret and root_secret for ratchet initialization.
-    """
-    from api_client_2 import derive_epoch_secret_from_tree
-    
-    # Derive both secrets
-    epoch_secret, root_secret = derive_epoch_secret_from_tree(tree, cipher_suite)
-    
-    # Serialize tree for backup
-    tree_serialized = base64.b64encode(tree.serialize()).decode('ascii')
-    
-    group_state = {
-        'epoch': current_epoch,
-        'tree': tree,
-        'tree_serialized': tree_serialized,
-        'epoch_secret': epoch_secret,
-        'root_secret': root_secret,  # ← For ratchet initialization
-        'group_id_b64': group_id_b64,
-        'my_leaf_index': my_leaf_index,
-        'member_count': len(tree.leaves),
-        'cipher_suite': cipher_suite,
-        'group_last_epoch': current_epoch,
-        'joined_at': time.time(),
-        # ratchet_manager will be created lazily on first use
-    }
-    
-    print(f"✅ Initialized group state with ratchet support")
-    print(f"   root_secret (first 8): {root_secret[:8].hex()}")
-    print(f"   epoch_secret (first 8): {epoch_secret[:8].hex()}")
-    
-    return group_state

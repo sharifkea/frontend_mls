@@ -12,7 +12,6 @@ let currentGroupId = null;
 let messageRefreshInterval = null;
 let isRefreshing = false;
 let refreshRequestCount = 0;
-let socket = null;
 // static/js/app.js
 let ws = null;
 let wsReconnectInterval = null;
@@ -44,15 +43,15 @@ function base64ToHex(base64) {
 }
 
 
+// Replace your existing initWebSocket with this updated version
 async function initWebSocket() {
     console.log('🔍 initWebSocket called');
     
-    // Get session data directly from sessionStorage (fastest)
+    // Get session data
     let userId = sessionStorage.getItem('userId');
     let token = sessionStorage.getItem('token');
     let username = sessionStorage.getItem('username');
     
-    // If not in sessionStorage, try IndexedDB
     if (!userId || !token) {
         const session = await loadSession();
         if (session) {
@@ -85,18 +84,41 @@ async function initWebSocket() {
             clearInterval(wsReconnectInterval);
             wsReconnectInterval = null;
         }
+        // Start heartbeat
+        startHeartbeat();
+        // Get online users
         ws.send(JSON.stringify({ type: 'get_online_users' }));
     };
     
     ws.onmessage = async (event) => {
         try {
             const data = JSON.parse(event.data);
-            console.log('📨 WebSocket message:', data);
+            console.log('📨 WebSocket message type:', data.type);
             
             switch (data.type) {
+                case 'new_message':
+                    await handleIncomingMessage(data);
+                    break;
+                    
+                case 'pong':
+                    console.log('💓 Heartbeat received');
+                    break;
+                
+                case 'refresh_messages':
+                    console.log(`🔄 Refresh messages for group ${data.group_id_b64}`);
+                    if (window.selectedGroup && window.selectedGroup.group_id === data.group_id_b64) {
+                        // Reload messages for this group
+                        loadMessages(window.selectedGroup.group_id_hex);
+                    }
+                    break;
+                    
+                case 'message_sent':
+                    console.log('✅ Message delivery confirmed by server');
+                    // Optional: show a small checkmark next to the message
+                    break;
+                    
                 case 'user_online':
                     showToast(`${data.username} is now online`, 'info');
-                    // Refresh online users list if needed
                     break;
                     
                 case 'user_offline':
@@ -105,69 +127,61 @@ async function initWebSocket() {
                     
                 case 'online_users':
                     console.log('Online users:', data.users);
-                    // Update UI with online users if you have such a list
                     break;
                     
-                case 'new_user_ready_to_join':
-                    // Creator received notification about new user wanting to join
-                    if (confirm(`User ${data.new_username} wants to join group "${data.group_name}". Add them?`)) {
-                        // Call Flask endpoint to add member
-                        fetch('/api/groups/add-member', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${session.token}`
-                            },
-                            body: JSON.stringify({
-                                group_id: data.group_id,
-                                new_user_id: data.new_user_id,
-                                new_username: data.new_username
-                            })
-                        });
-                    }
+                case 'joined':
+                    console.log('Joined group:', data.group_id);
                     break;
-                    
-                case 'new_message':
-                    if (window.selectedGroup && window.selectedGroup.group_id === data.group_id) {
-                        loadMessages(window.selectedGroup.group_id_hex);
-                    }
-                    break;
-                    
-                case 'pong':
-                    // Heartbeat response
-                    break;
-
+                
                 case 'join_request':
                     console.log(`📢 Join request from ${data.requester_username} for group "${data.group_name}"`);
+                    console.log('Full data:', data);
                     
                     showNotification(`Join request from ${data.requester_username}`, 'info');
                     
                     if (confirm(`User ${data.requester_username} wants to join group "${data.group_name}". Accept?`)) {
+                        console.log('✅ User accepted, sending add-member request...');
+                        
                         const session = await loadSession();
+                        console.log('Session loaded:', session?.userId);
                         
-                        const response = await fetch('/api/groups/add-member', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${session.token}`
-                            },
-                            body: JSON.stringify({
-                                group_id: data.group_id,
-                                new_user_id: data.requester_id,
-                                new_username: data.requester_username
-                            })
-                        });
+                        const requestBody = {
+                            group_id: data.group_id,
+                            new_user_id: data.requester_id,
+                            new_username: data.requester_username
+                        };
+                        console.log('Request body:', requestBody);
                         
-                        const result = await response.json();
-                        
-                        if (result.success) {
-                            showToast(`Added ${data.requester_username} to group!`, 'success');
-                            loadUserGroups(session.userId, session.token);
-                        } else {
-                            showToast(`Error: ${result.error}`, 'error');
+                        try {
+                            const response = await fetch('/api/groups/add-member', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${session.token}`
+                                },
+                                body: JSON.stringify(requestBody)
+                            });
+                            
+                            console.log('Response status:', response.status);
+                            const result = await response.json();
+                            console.log('Response data:', result);
+                            
+                            if (result.success) {
+                                showToast(`Added ${data.requester_username} to group!`, 'success');
+                                loadUserGroups(session.userId, session.token);
+                            } else {
+                                showToast(`Error: ${result.error}`, 'error');
+                                console.error('Add member error:', result.error);
+                            }
+                        } catch (error) {
+                            console.error('Fetch error:', error);
+                            showToast(`Error: ${error.message}`, 'error');
                         }
+                    } else {
+                        console.log('❌ User rejected the join request');
                     }
                     break;
+
 
                 case 'group_update':
                     console.log(`🔄 Group ${data.group_id} updated - new epoch: ${data.update_data.new_epoch}`);
@@ -202,7 +216,26 @@ async function initWebSocket() {
                         }
                     }
                     break;
-                                    
+
+                case 'new_user_ready_to_join':
+                    // Creator received notification about new user wanting to join
+                    if (confirm(`User ${data.new_username} wants to join group "${data.group_name}". Add them?`)) {
+                        // Call Flask endpoint to add member
+                        fetch('/api/groups/add-member', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${session.token}`
+                            },
+                            body: JSON.stringify({
+                                group_id: data.group_id,
+                                new_user_id: data.new_user_id,
+                                new_username: data.new_username
+                            })
+                        });
+                    }
+                    break;
+                    
                 default:
                     console.log('Unknown message type:', data.type);
             }
@@ -224,6 +257,20 @@ async function initWebSocket() {
     ws.onerror = (error) => {
         console.error('WebSocket error:', error);
     };
+}
+
+function startHeartbeat() {
+    // Clear existing interval if any
+    if (window.heartbeatInterval) {
+        clearInterval(window.heartbeatInterval);
+    }
+    
+    window.heartbeatInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+            console.log('💓 Heartbeat sent');
+        }
+    }, 30000);
 }
 
 // Convert hex to base64
@@ -525,8 +572,6 @@ async function handleLogin() {
             
             // Initialize WebSocket AFTER UI is ready and session is confirmed
             initWebSocket();
-            startHeartbeat();
-            
             // Load data
             await loadUserGroups(data.user_id, data.token);
             await checkForPendingWelcomes();
@@ -633,18 +678,17 @@ window.selectedGroup = null;
 
 function selectGroup(group) {
     console.log('📌 selectGroup called for group:', group.group_name);
-    console.trace('selectGroup called from:');
+    
     // Check if we're already viewing this group
     if (window.selectedGroup && window.selectedGroup.group_id === group.group_id) {
         console.log('Already viewing this group, skipping');
         return;
     }
     
-    // Clear existing interval completely
+    // Clear existing interval
     if (messageRefreshInterval) {
         clearInterval(messageRefreshInterval);
         messageRefreshInterval = null;
-        console.log('🛑 Cleared existing message interval');
     }
     
     // Reset flags
@@ -663,14 +707,14 @@ function selectGroup(group) {
     document.getElementById('message-text').disabled = false;
     document.getElementById('send-btn').disabled = false;
     
-    // Load messages once immediately
+    // ✅ CLEAR the message container when switching groups
+    const container = document.getElementById('messages-container');
+    if (container) {
+        container.innerHTML = '<div class="no-messages">Loading messages...</div>';
+    }
+    
+    // Load messages for this group
     loadMessages(window.selectedGroup.group_id_hex);
-    
-    
-    // TEMPORARILY DISABLE AUTO-REFRESH FOR DEBUGGING
-    // messageRefreshInterval = setInterval(() => { ... }, 3000);
-    
-    console.log('Auto-refresh disabled for debugging');
 }
 
 async function loadMessages(groupIdHex) {
@@ -694,7 +738,7 @@ async function loadMessages(groupIdHex) {
     }
     
     try {
-        console.log(`📩 [${new Date().toLocaleTimeString()}] Fetching messages for group: ${groupIdHex}`);
+        console.log(`📩 Fetching new messages for group: ${groupIdHex}`);
         
         const response = await fetch('/api/messages/get', {
             method: 'POST',
@@ -716,6 +760,7 @@ async function loadMessages(groupIdHex) {
         if (data.success) {
             // Only update if we're still on the same group
             if (window.selectedGroup && window.selectedGroup.group_id_hex === groupIdHex) {
+                // ✅ This will APPEND new messages, not replace all
                 displayMessages(data.messages);
             }
         } else {
@@ -725,7 +770,9 @@ async function loadMessages(groupIdHex) {
         console.error('Failed to load messages:', error);
         if (container) {
             container.classList.remove('loading');
-            container.innerHTML = '<div class="no-messages">Error loading messages</div>';
+            if (container.children.length === 0) {
+                container.innerHTML = '<div class="no-messages">Error loading messages</div>';
+            }
         }
     } finally {
         isRefreshing = false;
@@ -772,24 +819,49 @@ function displayMessages(messages) {
     const container = document.getElementById('messages-container');
     if (!container) return;
     
-    container.innerHTML = '';
+    console.log('📊 displayMessages called with', messages.length, 'messages');
+    console.log('📊 Current container has', container.children.length, 'children');
+    
+    // If this is the first load (container is empty or has "no messages"), clear it
+    const isEmpty = container.children.length === 0 || 
+                    (container.children.length === 1 && container.querySelector('.no-messages'));
+    
+    console.log('📊 isEmpty:', isEmpty);
+    
+    if (isEmpty) {
+        console.log('📊 Clearing container for first load');
+        container.innerHTML = '';
+    }
     
     if (!messages || messages.length === 0) {
-        container.innerHTML = '<div class="no-messages">No messages yet</div>';
+        if (container.children.length === 0) {
+            container.innerHTML = '<div class="no-messages">No messages yet</div>';
+        }
         return;
     }
     
     const currentUser = sessionStorage.getItem('username');
+    let addedCount = 0;
     
     messages.forEach(msg => {
+        // Check if message already exists in UI (by message_id)
+        const existingMessage = document.querySelector(`.message[data-message-id="${msg.message_id}"]`);
+        if (existingMessage) {
+            console.log('⏭️ Skipping duplicate message:', msg.message_id);
+            return;
+        }
+        
         const isSelf = msg.sender_username === currentUser;
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${isSelf ? 'sent' : 'received'}`;
+        messageDiv.setAttribute('data-message-id', msg.message_id || Date.now());
         
         let timeStr = '';
         if (msg.created_at) {
             const date = new Date(msg.created_at);
             timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else {
+            timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
         
         messageDiv.innerHTML = `
@@ -801,8 +873,12 @@ function displayMessages(messages) {
         `;
         
         container.appendChild(messageDiv);
+        addedCount++;
     });
     
+    console.log('📊 Added', addedCount, 'new messages');
+    
+    // Scroll to bottom
     container.scrollTop = container.scrollHeight;
 }
 
@@ -819,6 +895,7 @@ async function sendMessage() {
     }
     
     try {
+        // Use your EXISTING working endpoint
         const response = await fetch('/api/messages/send', {
             method: 'POST',
             headers: { 
@@ -826,7 +903,7 @@ async function sendMessage() {
                 'Authorization': `Bearer ${session.token}`
             },
             body: JSON.stringify({
-                group_id_hex: window.selectedGroup.group_id_hex || base64ToHex(window.selectedGroup.group_id),
+                group_id_hex: window.selectedGroup.group_id_hex,
                 message: messageText
             })
         });
@@ -835,15 +912,31 @@ async function sendMessage() {
         
         if (data.error) {
             alert('Failed to send message: ' + data.error);
-        } else {
-            document.getElementById('message-text').value = '';
-            // Refresh messages immediately
-            const groupIdHex = window.selectedGroup.group_id_hex || base64ToHex(window.selectedGroup.group_id);
-            if (groupIdHex) {
-                await loadMessages(groupIdHex);
-            }
+            return;
         }
+        
+        // Clear input
+        document.getElementById('message-text').value = '';
+        
+        // Display own message immediately
+        appendMessageToUI({
+            sender_username: session.username,
+            text: messageText,
+            created_at: new Date().toISOString()
+        });
+        
+        // Send WebSocket notification to others (just the notification, not the encrypted message)
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: "new_message_notification",
+                group_id_b64: window.selectedGroup.group_id,
+                sender_username: session.username
+            }));
+            console.log('📡 WebSocket notification sent');
+        }
+        
     } catch (error) {
+        console.error('Error sending message:', error);
         alert('Error: ' + error.message);
     }
 }
@@ -1089,14 +1182,6 @@ function stopWelcomePolling() {
     }
 }
 
-function startHeartbeat() {
-        setInterval(() => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'ping' }));
-            }
-        }, 30000);
-    }
-
 // Search for and join a group
 async function searchAndJoinGroup() {
     const session = await loadSession();
@@ -1168,7 +1253,47 @@ async function sendJoinRequest(group, token) {
     }
 }
 
+async function handleIncomingMessage(data) {
+    console.log(`📩 Real-time message from ${data.sender_username}`);
+    
+    if (window.selectedGroup && window.selectedGroup.group_id === data.group_id_b64) {
+        const session = await loadSession();
+        if (session) {
+            const decrypted = await decryptSingleMessage(data, session.token);
+            if (decrypted) {
+                appendMessageToUI(decrypted);
+                
+                // Also update the last displayed message ID in session
+                await updateLastDisplayedMessage(data.group_id_b64, decrypted.message_id);
+            }
+        }
+    } else {
+        showNotification(`New message from ${data.sender_username}`, 'info');
+        markGroupUnread(data.group_id_b64);
+    }
+}
 
+// New function to update last displayed message ID
+async function updateLastDisplayedMessage(groupIdB64, messageId) {
+    const session = await loadSession();
+    if (!session) return;
+    
+    try {
+        await fetch('/api/messages/update-read-status', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.token}`
+            },
+            body: JSON.stringify({
+                group_id_b64: groupIdB64,
+                message_id: messageId
+            })
+        });
+    } catch (error) {
+        console.error('Failed to update read status:', error);
+    }
+}
 
 
 // ==================== WINDOW EVENT HANDLERS ====================
@@ -1193,4 +1318,55 @@ window.addEventListener('load', async () => {
         await checkForPendingWelcomes();
     }
 });
+
+// This is for real-time WebSocket messages
+function appendMessageToUI(message) {
+    const container = document.getElementById('messages-container');
+    if (!container) return;
+    
+    // Remove "no messages" placeholder if it exists
+    const noMessages = container.querySelector('.no-messages');
+    if (noMessages) {
+        noMessages.remove();
+    }
+    
+    // Check if message already exists (prevent duplicates)
+    if (message.message_id) {
+        const existing = container.querySelector(`.message[data-message-id="${message.message_id}"]`);
+        if (existing) {
+            console.log('Message already displayed, skipping');
+            return;
+        }
+    }
+    
+    const currentUser = sessionStorage.getItem('username');
+    const isSelf = message.sender_username === currentUser;
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${isSelf ? 'sent' : 'received'}`;
+    if (message.message_id) {
+        messageDiv.setAttribute('data-message-id', message.message_id);
+    }
+    
+    let timeStr = '';
+    if (message.created_at) {
+        const date = new Date(message.created_at);
+        timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else {
+        timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <span class="sender">${escapeHtml(message.sender_username)}</span>
+            <span class="time">${timeStr}</span>
+        </div>
+        <div class="message-content">${escapeHtml(message.text)}</div>
+    `;
+    
+    container.appendChild(messageDiv);
+    container.scrollTop = container.scrollHeight;
+    
+    console.log(`✅ Appended message from ${message.sender_username}`);
+}
 

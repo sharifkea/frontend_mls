@@ -26,181 +26,48 @@ cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
 
 BASE_URL = "http://localhost:8000"  # Your FastAPI backend URL
 
-
-class Ratchet:
-    """
-    Single ratchet chain for one direction between two users.
-    Each step produces a new message key AND a new root secret.
-    This provides forward secrecy - compromising current state doesn't reveal past keys.
-    """
+class MessageRatchet:
+    """Per-message ratchet for forward secrecy and PCS"""
     
-    def __init__(self, root_secret: bytes, cipher_suite):
+    def __init__(self, cipher_suite, root_secret):
         self.cipher_suite = cipher_suite
         self.root_secret = root_secret
-        self.generation = 0
+        self.message_count = 0
         self.current_key = None
     
-    def next_key(self) -> tuple[bytes, int]:
-        """
-        Advance the ratchet and return the next message key.
-        Returns: (message_key, generation)
-        """
-        # Derive 64 bytes: first 32 = message key, next 32 = new root
-        output = DeriveSecret(self.cipher_suite, self.root_secret, b"ratchet_step")
-        
-        message_key = output[:32]
-        self.root_secret = output[32:64]  # Update root for next step
-        
-        generation = self.generation
-        self.generation += 1
-        self.current_key = message_key
-        
-        print(f"   🔄 Ratchet advanced: gen {generation}, key: {message_key[:8].hex()}...")
-        return message_key, generation
-    
-    def get_key_for_generation(self, target_generation: int) -> bytes:
-        """
-        Fast-forward ratchet to a specific generation and return that key.
-        Used for decryption when receiving out-of-order messages.
-        """
-        if target_generation < self.generation:
-            # This should not happen with proper MLS ordering
-            # But if it does, we can't go backwards (forward secrecy)
-            raise ValueError(f"Cannot go backwards: have gen {self.generation}, requested {target_generation}")
-        
-        # Fast-forward to target
-        current_key = None
-        for _ in range(self.generation, target_generation + 1):
-            current_key, _ = self.next_key()
-        
-        return current_key
-    
-    def get_current_generation(self) -> int:
-        return self.generation
-    
-    def to_dict(self) -> dict:
-        """Serialize for storage in user_crypto_store"""
-        return {
-            'root_secret': base64.b64encode(self.root_secret).decode('ascii'),
-            'generation': self.generation,
-            'cipher_suite': str(self.cipher_suite)
-        }
-    
-    @classmethod
-    def from_dict(cls, data: dict, cipher_suite):
-        """Deserialize from stored dict"""
-        ratchet = cls(base64.b64decode(data['root_secret']), cipher_suite)
-        ratchet.generation = data['generation']
-        return ratchet
+    def next_key(self):
+        """Generate next message key using KDF chain"""
+        label = f"message {self.message_count}".encode()
+        self.current_key = DeriveSecret(self.cipher_suite, self.root_secret, label)
+        self.message_count += 1
+        return self.current_key
 
-
-class PerUserRatchetManager:
-    """
-    Manages all ratchets for a user in a specific group.
-    - One SEND ratchet (for messages this user sends to the group)
-    - One RECEIVE ratchet per other user (for messages received from each sender)
-    """
+def encrypt_with_ratchet(group_state, message_text, sender_leaf_index):
+    """Encrypt message with ratcheted key for PCS"""
+    tree = group_state['tree']
+    cipher_suite = group_state['cipher_suite']
     
-    def __init__(self, initial_root_secret: bytes, cipher_suite, my_user_id: str):
-        self.cipher_suite = cipher_suite
-        self.my_user_id = my_user_id
-        self.send_ratchet = Ratchet(initial_root_secret, cipher_suite)
-        self.recv_ratchets = {}  # sender_user_id -> Ratchet
-        self.initial_root = initial_root_secret
+    # Derive root_secret from tree
+    root_secret = tree.hash(cipher_suite)
     
-    def get_send_key(self) -> tuple[bytes, int]:
-        """Get next key for sending a message"""
-        return self.send_ratchet.next_key()
+    # Initialize or advance ratchet
+    if 'ratchet' not in group_state:
+        group_state['ratchet'] = MessageRatchet(cipher_suite, root_secret)
     
-    def get_recv_key(self, sender_user_id: str, generation: int) -> bytes:
-        """
-        Get key for decrypting a message from a specific sender.
-        Creates a new ratchet for that sender if it doesn't exist.
-        """
-        if sender_user_id not in self.recv_ratchets:
-            # Initialize with the same initial root (all start same)
-            self.recv_ratchets[sender_user_id] = Ratchet(self.initial_root, self.cipher_suite)
-            print(f"   📌 Created receive ratchet for sender {sender_user_id[:8]}...")
-        
-        ratchet = self.recv_ratchets[sender_user_id]
-        return ratchet.get_key_for_generation(generation)
+    # Get next message key
+    message_key = group_state['ratchet'].next_key()
     
-    def get_recv_ratchet_state(self, sender_user_id: str) -> dict:
-        """Get state of a receive ratchet for debugging"""
-        if sender_user_id in self.recv_ratchets:
-            return {
-                'generation': self.recv_ratchets[sender_user_id].generation
-            }
-        return None
-    
-    def to_dict(self) -> dict:
-        """Serialize all ratchets for storage"""
-        return {
-            'send_ratchet': self.send_ratchet.to_dict(),
-            'recv_ratchets': {
-                sender_id: ratchet.to_dict() 
-                for sender_id, ratchet in self.recv_ratchets.items()
-            },
-            'initial_root': base64.b64encode(self.initial_root).decode('ascii')
-        }
-    
-    @classmethod
-    def from_dict(cls, data: dict, cipher_suite, my_user_id: str):
-        """Deserialize ratchets from stored dict"""
-        initial_root = base64.b64decode(data['initial_root'])
-        manager = cls(initial_root, cipher_suite, my_user_id)
-        
-        # Restore send ratchet
-        manager.send_ratchet = Ratchet.from_dict(data['send_ratchet'], cipher_suite)
-        
-        # Restore receive ratchets
-        for sender_id, ratchet_data in data['recv_ratchets'].items():
-            manager.recv_ratchets[sender_id] = Ratchet.from_dict(ratchet_data, cipher_suite)
-        
-        return manager
-    
-def encrypt_with_ratchet(group_state, message_text: str, sender_user_id: str) -> tuple[str, str, int, int]:
-    """
-    Encrypt message using the send ratchet.
-    Returns: (ciphertext_b64, nonce_b64, generation, sender_leaf_index)
-    """
-    tree = group_state.get('tree')
-    cipher_suite = group_state.get('cipher_suite')
-    group_id_b64 = group_state.get('group_id_b64')
-    epoch = group_state.get('epoch', 0)
-    my_leaf_index = group_state.get('my_leaf_index')  # ← Get from group_state
-    
-    if my_leaf_index is None:
-        raise ValueError("my_leaf_index not found in group_state")
-    
-    # Get or create ratchet manager
-    if 'ratchet_manager' not in group_state:
-        # Need root_secret to initialize ratchets
-        if 'root_secret' not in group_state:
-            # Derive from tree
-            _, root_secret = derive_epoch_secret_from_tree(tree, cipher_suite)
-            group_state['root_secret'] = root_secret
-        
-        group_state['ratchet_manager'] = PerUserRatchetManager(
-            group_state['root_secret'], 
-            cipher_suite, 
-            sender_user_id
-        )
-        print(f"   🔄 Initialized ratchet manager for user {sender_user_id[:8]}...")
-    
-    manager = group_state['ratchet_manager']
-    
-    # Get next send key
-    message_key, generation = manager.get_send_key()
-    print(f"   🔐 Encrypting with send ratchet: generation {generation}, leaf {my_leaf_index}")
+    # Encrypt with this unique key
+    nonce = secrets.token_bytes(12)
+    aead = AESGCM(message_key)
     
     # Create FramedContent
-    group_id_bytes = base64.b64decode(group_id_b64)
-    sender = Sender(sender_type=SenderType.member, leaf_index=my_leaf_index)  # ← Use my_leaf_index
+    group_id_bytes = base64.b64decode(group_state['group_id_b64'])
+    sender = Sender(sender_type=SenderType.member, leaf_index=sender_leaf_index)
     
     framed_content = FramedContent(
         group_id=VLBytes(group_id_bytes),
-        epoch=epoch,
+        epoch=group_state['epoch'],
         sender=sender,
         authenticated_data=VLBytes(b""),
         content_type=ContentType.application,
@@ -208,74 +75,12 @@ def encrypt_with_ratchet(group_state, message_text: str, sender_user_id: str) ->
     )
     
     content_bytes = framed_content.serialize()
-    
-    # Encrypt
-    nonce = secrets.token_bytes(12)
-    aead = AESGCM(message_key)
     ciphertext = aead.encrypt(nonce, content_bytes, b"")
     
-    return (
-        base64.b64encode(ciphertext).decode('ascii'),
-        base64.b64encode(nonce).decode('ascii'),
-        generation,
-        my_leaf_index 
-    )
-
-def decrypt_with_ratchet(msg_data: dict, group_state: dict, my_user_id: str) -> dict:
-    """
-    Decrypt a message using the appropriate receive ratchet for the sender.
-    """
-    cipher_suite = group_state.get('cipher_suite')
-    sender_user_id = msg_data.get('sender_user_id')
-    generation = msg_data.get('message_generation', 0)
-    epoch = msg_data.get('epoch', group_state.get('epoch', 0))
+    # Store the generation number for decryption
+    generation = group_state['ratchet'].message_count - 1
     
-    print(f"   🔓 Decrypting: sender={sender_user_id[:8]}..., gen={generation}")
-    
-    # Get or create ratchet manager
-    if 'ratchet_manager' not in group_state:
-        # Need root_secret to initialize
-        tree = group_state.get('tree')
-        if tree is None:
-            raise ValueError("No tree in group_state")
-        
-        epoch_secret, root_secret = derive_epoch_secret_from_tree(tree, cipher_suite)
-        group_state['root_secret'] = root_secret
-        group_state['ratchet_manager'] = PerUserRatchetManager(
-            root_secret, cipher_suite, my_user_id
-        )
-        print(f"   🔄 Initialized ratchet manager for decryption")
-    
-    manager = group_state['ratchet_manager']
-    
-    # Get key from sender's receive ratchet
-    message_key = manager.get_recv_key(sender_user_id, generation)
-    print(f"   🔑 Got key for gen {generation}: {message_key[:8].hex()}...")
-    
-    # Decrypt
-    ciphertext = base64.b64decode(msg_data['ciphertext'])
-    nonce = base64.b64decode(msg_data['nonce'])
-    
-    aead = AESGCM(message_key)
-    plaintext = aead.decrypt(nonce, ciphertext, b"")
-    
-    # Parse FramedContent
-    framed = FramedContent.deserialize(bytearray(plaintext))
-    
-    if hasattr(framed, 'application_data'):
-        message_text = framed.application_data.data.decode('utf-8')
-    else:
-        message_text = "[No text]"
-    
-    return {
-        'message_id': msg_data.get('message_id'),
-        'sender_username': msg_data.get('sender_username', 'Unknown'),
-        'sender_leaf_index': framed.sender.leaf_index,
-        'text': message_text,
-        'epoch': epoch,
-        'generation': generation,
-        'created_at': msg_data.get('created_at')
-    }
+    return ciphertext, nonce, generation
 
 def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer_index: int = 0):
     """
@@ -475,30 +280,53 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
 
     return welcome_bytes, updated_group
 
-def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite) -> tuple[bytes, bytes]:
-    """
-    Derive both epoch_secret and root_secret from tree.
-    Returns: (epoch_secret, root_secret)
-    """
+def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite) -> bytes:
+    """Derive epoch secret from a properly repaired tree"""
     if tree is None:
         raise ValueError("No tree provided")
     
     print(f"\n{'='*60}")
-    print(f"🌲 DERIVING SECRETS FROM TREE")
+    print(f"🌲 DERIVING EPOCH SECRET FROM TREE")
     print(f"{'='*60}")
     print(f"   Tree leaves: {len(tree.leaves)}")
     print(f"   Tree nodes: {tree.nodes}")
     
-    # Force leaf indices for ALL leaves
+    # Print tree hash BEFORE any fixes
+    try:
+        original_hash = tree.hash(cipher_suite)
+        print(f"   Original tree hash (first 16): {original_hash[:16].hex()}")
+    except Exception as e:
+        print(f"   Original tree hash: ERROR - {e}")
+    
+    # ===== FORCE leaf indices for ALL leaves =====
+    print(f"\n📊 Fixing leaf indices...")
     for i, leaf in enumerate(tree.leaves):
         if isinstance(leaf, LeafNode):
             if not hasattr(leaf, '_leaf_index') or leaf._leaf_index is None:
                 leaf._leaf_index = i
+                print(f"   Fixed leaf {i}: set _leaf_index = {leaf._leaf_index}")
+            else:
+                print(f"   Leaf {i}: _leaf_index = {leaf._leaf_index}")
+    
+    # Also ensure node indices
+    for i in range(tree.nodes):
+        node = tree[i]
+        if hasattr(node, '_node_index'):
+            if node._node_index is None:
+                node._node_index = i
     
     tree.update_leaf_index()
     tree.update_node_index()
     
-    # Derive root_secret from tree hash
+    # Print tree hash AFTER fixes
+    try:
+        fixed_hash = tree.hash(cipher_suite)
+        print(f"\n   Fixed tree hash (first 16): {fixed_hash[:16].hex()}")
+    except Exception as e:
+        print(f"   Fixed tree hash: ERROR - {e}")
+        raise
+    
+    # Derive epoch secret
     root_secret = tree.hash(cipher_suite)
     epoch_secret = DeriveSecret(cipher_suite, root_secret, b"epoch")
     

@@ -390,5 +390,3 @@ fetch('/api/debug/tree/ev5Am8BA0JMKR7OH7oksTA==').then(r => r.json()).then(conso
    root_secret (first 8): 7afa129421eeb297
    epoch_secret (first 8): e08cef4b702fae38
 ============================================================
-
-encrypt_and_send_message(

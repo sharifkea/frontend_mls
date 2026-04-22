@@ -212,6 +212,10 @@ def update_group_state():
         # Build tree using the working replay method
         tree, current_epoch, members = api_client.build_tree_by_replay(group_id_b64, token)
         
+        # Now derive epoch_secret
+        root_secret = tree.hash(cs)
+        epoch_secret = DeriveSecret(cs, root_secret, b"epoch")
+        
         # Find my leaf index
         my_leaf_index = None
         for member in members:
@@ -219,23 +223,26 @@ def update_group_state():
                 my_leaf_index = member.get('leaf_index')
                 break
         
-        # Initialize group state with ratchet
+        # Store group state
         if user_id not in user_crypto_store:
             user_crypto_store[user_id] = {}
         if 'groups' not in user_crypto_store[user_id]:
             user_crypto_store[user_id]['groups'] = {}
         
-        # ✅ USE NEW FUNCTION
-        user_crypto_store[user_id]['groups'][group_id_b64] = initialize_group_state_with_ratchet(
+        user_crypto_store[user_id]['groups'][group_id_b64] = initialize_group_state_with_keys(
             group_id_b64=group_id_b64,
             tree=tree,
             cipher_suite=cs,
             my_leaf_index=my_leaf_index,
             current_epoch=current_epoch,
-            my_user_id=user_id
+            my_user_id=user_id,
+            members=members,
+            epoch_secret=epoch_secret,
+            root_secret=root_secret
         )
+
         
-        print(f"✅ User {user_id} group state updated with ratchet")
+        print(f"✅ User {user_id} group state updated")
         print(f"   Tree has {len(tree.leaves)} leaves, epoch {current_epoch}")
         
         return jsonify({'success': True})
@@ -339,7 +346,7 @@ def add_member_to_group():
         new_tree.update_node_index()
         
         # 6. Derive new epoch secret
-        new_epoch_secret = api_client_2.derive_epoch_secret_from_tree(new_tree, cs)
+        new_epoch_secret, new_root_secret = api_client_2.derive_epoch_secret_from_tree(new_tree, cs)
         new_epoch = current_epoch + 1
         
         # 7. Generate joiner_secret for new member
@@ -361,15 +368,22 @@ def add_member_to_group():
         # 10. Update group epoch in database
         api_client.update_group_epoch(group_id_b64, new_epoch, token)
         
+        # Notify all online members (including Alice) via WebSocket
+        # Get all existing members (excluding the new member)
+        updated_members_response = api_client.get_group_members(group_id_b64, token)
+        all_members = updated_members_response.get('members', [])
+
         # 11. Update creator's group state
-        
-        user_crypto_store[creator_id]['groups'][group_id_b64] = api_client.initialize_group_state_with_ratchet(
+        user_crypto_store[creator_id]['groups'][group_id_b64] = initialize_group_state_with_keys(
             group_id_b64=group_id_b64,
             tree=new_tree,
             cipher_suite=cs,
-            my_leaf_index=0,  # Creator's leaf index
+            my_leaf_index=0,
             current_epoch=new_epoch,
-            my_user_id=creator_id
+            my_user_id=creator_id,
+            members=all_members,
+            epoch_secret=new_epoch_secret,
+            root_secret=new_root_secret
         )
         
         # 12. Create a Commit message for existing members (Alice) to update their state
@@ -385,13 +399,6 @@ def add_member_to_group():
             },
             'tree_serialized': base64.b64encode(new_tree.serialize()).decode('ascii')
         }
-        
-        
-
-        # Notify all online members (including Alice) via WebSocket
-        # Get all existing members (excluding the new member)
-        updated_members_response = api_client.get_group_members(group_id_b64, token)
-        all_members = updated_members_response.get('members', [])
         
         # Filter out the new member (they will get a Welcome separately)
         existing_members = [m for m in all_members if m.get('user_id') != new_user_id]
@@ -671,10 +678,10 @@ def send_message():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
         
-    
+
 @app.route('/api/messages/get', methods=['POST'])
 def get_messages():
-    """Get and decrypt messages for a group - uses POST with JSON body"""
+    """Get and decrypt NEW messages only (not already displayed)"""
     data = request.json
     group_id_hex = data.get('group_id_hex')
     
@@ -687,16 +694,14 @@ def get_messages():
     if not group_id_hex:
         return jsonify({'error': 'group_id_hex required'}), 400
     
-    # Convert hex to base64 for lookup
+    # Convert hex to base64
     try:
         group_id_bytes = bytes.fromhex(group_id_hex)
         group_id_b64 = base64.b64encode(group_id_bytes).decode('ascii')
     except:
         return jsonify({'error': 'Invalid group_id hex'}), 400
     
-   #print(f"📩 Getting messages for group: {group_id_b64} (hex: {group_id_hex})")
-    
-    # Get group state using base64
+    # Get group state
     if user_id not in user_crypto_store:
         return jsonify({'messages': []})
     
@@ -704,48 +709,71 @@ def get_messages():
         return jsonify({'messages': []})
     
     if group_id_b64 not in user_crypto_store[user_id]['groups']:
-       #print(f"Group {group_id_b64} not found in user's groups")
         return jsonify({'messages': []})
     
     group_state = user_crypto_store[user_id]['groups'][group_id_b64]
     
-    # Get messages from FastAPI
-    result = api_client.get_group_messages(group_id_b64, token)
+    # ✅ NOW this exists because we use initialize_group_state_with_keys
+    last_message_id = group_state.get('last_displayed_message_id')
+    displayed_messages = group_state.get('displayed_messages', [])
+    joined_epoch = group_state.get('epoch', 0)
+    latest_epoch = group_state.get('group_last_epoch', joined_epoch)
+    
+    print(f"📊 User joined at epoch: {joined_epoch}, group latest: {latest_epoch}")
+    # Build URL with since_epoch parameter
+    params = {"limit": 50, "since_epoch": joined_epoch}
+    # Build URL with since_message_id if available
+    group_id_hex_for_url = group_id_bytes.hex()
+    url = f"http://localhost:8000/groups/{group_id_hex_for_url}/messages"
+    if last_message_id:
+        params["since_message_id"] = last_message_id
+    # Also track the latest epoch for the group (for updates)
+    # Fetch messages from FastAPI
+    try:
+        import requests
+        response = requests.get(
+            url,
+            params=params,
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        result = response.json()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
     
     if 'error' in result:
         return jsonify({'error': result['error']}), 400
-
-   #print(f"📊 Received {len(result.get('messages', []))} messages from FastAPI")
     
-    # Log the first message for debugging
-    if result.get('messages'):
-        first_msg = result['messages'][0]
-       #print(f"📊 First message - sender: {first_msg.get('sender_username')}")
-       #print(f"📊 First message - ciphertext length: {len(first_msg.get('ciphertext', ''))}")
-       #print(f"📊 First message - epoch: {first_msg.get('epoch')}")
-    
-    # Decrypt messages
+    # Decrypt only NEW messages (not already displayed)
     decrypted_messages = []
+    latest_message_id = last_message_id
     
     for msg in result.get('messages', []):
+        # ✅ Skip if already displayed
+        if msg.get('message_id') in displayed_messages:
+            continue
+            
         try:
-           #print(f"🔓 Attempting to decrypt message from {msg.get('sender_username')}")
             decrypted = api_client.decrypt_message(msg, group_state, user_id)
             if decrypted:
-               #print(f"✅ Decrypted: {decrypted.get('text')[:50]}")
                 decrypted_messages.append(decrypted)
-            #else:
-               #print(f"❌ Decryption returned None")
+                latest_message_id = msg.get('message_id')
         except Exception as e:
-           #print(f"⚠️ Failed to decrypt message: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"⚠️ Failed to decrypt message: {e}")
             decrypted_messages.append({
                 'message_id': msg.get('message_id'),
                 'sender_username': msg.get('sender_username', 'Unknown'),
                 'text': f'[Encrypted - Error: {str(e)[:50]}]',
                 'created_at': msg.get('created_at')
             })
+            latest_message_id = msg.get('message_id')
+    
+    # ✅ Update tracking
+    if latest_message_id and latest_message_id != last_message_id:
+        group_state['last_displayed_message_id'] = latest_message_id
+        for msg in decrypted_messages:
+            if msg.get('message_id') and msg.get('message_id') not in displayed_messages:
+                displayed_messages.append(msg.get('message_id'))
+        group_state['displayed_messages'] = displayed_messages
     
     return jsonify({
         'success': True,
@@ -844,20 +872,23 @@ def process_welcome():
             break
     
     # 10. Store group state
-    # ✅ USE NEW FUNCTION
     if user_id not in user_crypto_store:
         user_crypto_store[user_id] = {}
     if 'groups' not in user_crypto_store[user_id]:
         user_crypto_store[user_id]['groups'] = {}
     
-    group_state = api_client.initialize_group_state_with_ratchet(
+    group_state = initialize_group_state_with_keys(
         group_id_b64=group_id_b64,
         tree=tree,
         cipher_suite=cs,
         my_leaf_index=my_leaf_index,
         current_epoch=current_epoch,
-        my_user_id=user_id
+        my_user_id=user_id,
+        members=members,
+        epoch_secret=epoch_secret,
+        root_secret=root_secret
     )
+
     
     user_crypto_store[user_id]['groups'][group_id_b64] = group_state
     
@@ -954,7 +985,7 @@ def create_group_with_online():
     final_tree.update_node_index()
     
     # Derive epoch_secret from the tree
-    epoch_secret = api_client_2.derive_epoch_secret_from_tree(final_tree, cs)
+    epoch_secret, root_secret = api_client_2.derive_epoch_secret_from_tree(final_tree, cs)
     
     # Store final group state
     if creator_id not in user_crypto_store:
@@ -962,13 +993,16 @@ def create_group_with_online():
     if 'groups' not in user_crypto_store[creator_id]:
         user_crypto_store[creator_id]['groups'] = {}
     
-    user_crypto_store[creator_id]['groups'][group_id_b64] = api_client.initialize_group_state_with_ratchet(
+    user_crypto_store[creator_id]['groups'][group_id_b64] = initialize_group_state_with_keys(
         group_id_b64=group_id_b64,
         tree=final_tree,
         cipher_suite=cs,
-        my_leaf_index=0,  # Creator is leaf 0
+        my_leaf_index=0,
         current_epoch=final_epoch,
-        my_user_id=creator_id
+        my_user_id=creator_id,
+        members=members,
+        epoch_secret=epoch_secret,
+        root_secret=root_secret
     )
     
     # Update group epoch in database
@@ -1067,6 +1101,95 @@ def debug_user_state():
             }
     
     return jsonify(result)
+
+def initialize_group_state_with_keys(group_id_b64: str, tree, cipher_suite, my_leaf_index: int, current_epoch: int, my_user_id: str, members: list, epoch_secret=None, root_secret=None) -> dict:
+    """
+    Initialize group state with per-sender root key tracking and message read tracking.
+    """
+    from api_client_2 import derive_epoch_secret_from_tree
+    
+    # Derive initial root secret
+    #epoch_secret, root_secret = derive_epoch_secret_from_tree(tree, cipher_suite)
+    
+    # Initialize per-sender root keys
+    per_sender_roots = {}
+    for member in members:
+        sender_id = member.get('user_id')
+        per_sender_roots[sender_id] = {
+            'root_secret': root_secret,
+            'generation': 0,
+            'last_used': time.time()
+        }
+    
+    # Own send root
+    own_send_root = {
+        'root_secret': root_secret,
+        'generation': 0,
+        'last_used': time.time()
+    }
+    
+    # Serialize tree for backup
+    tree_serialized = base64.b64encode(tree.serialize()).decode('ascii')
+    
+    group_state = {
+        'epoch': current_epoch,
+        'tree': tree,
+        'tree_serialized': tree_serialized,
+        'epoch_secret': epoch_secret,
+        'root_secret': root_secret,
+        'group_id_b64': group_id_b64,
+        'my_leaf_index': my_leaf_index,
+        'my_user_id': my_user_id,
+        'member_count': len(members),
+        'cipher_suite': cipher_suite,
+        'group_last_epoch': current_epoch,
+        'joined_at': time.time(),
+        'per_sender_roots': per_sender_roots,
+        'own_send_root': own_send_root,
+        'members_list': members,
+        # NEW: Track displayed messages
+        'last_displayed_message_id': None,  # Last message ID shown to user
+        'displayed_messages': []            # List of all displayed message IDs
+    }
+    
+    print(f"✅ Initialized group state with message tracking")
+    print(f"   Initial root_secret: {root_secret[:8].hex()}...")
+    print(f"   Tracking {len(per_sender_roots)} senders")
+    
+    return group_state
+
+@app.route('/api/messages/update-read-status', methods=['POST'])
+def update_read_status():
+    """Update the last displayed message ID for a group"""
+    data = request.json
+    group_id_b64 = data.get('group_id_b64')
+    message_id = data.get('message_id')
+    
+    user_id = session.get('user_id')
+    
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if user_id not in user_crypto_store:
+        return jsonify({'error': 'User not found'}), 400
+    
+    if 'groups' not in user_crypto_store[user_id]:
+        return jsonify({'error': 'No groups'}), 400
+    
+    if group_id_b64 not in user_crypto_store[user_id]['groups']:
+        return jsonify({'error': 'Group not found'}), 404
+    
+    # Update the last displayed message ID
+    user_crypto_store[user_id]['groups'][group_id_b64]['last_displayed_message_id'] = message_id
+    
+    # Add to displayed messages list if not already there
+    if 'displayed_messages' not in user_crypto_store[user_id]['groups'][group_id_b64]:
+        user_crypto_store[user_id]['groups'][group_id_b64]['displayed_messages'] = []
+    
+    if message_id not in user_crypto_store[user_id]['groups'][group_id_b64]['displayed_messages']:
+        user_crypto_store[user_id]['groups'][group_id_b64]['displayed_messages'].append(message_id)
+    
+    return jsonify({'success': True})
 
 if __name__ == '__main__': 
     app.run(debug=True, host='0.0.0.0', port=5000)
