@@ -912,15 +912,15 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
         member_leaf = member_kp.content.leaf_node
         
         # Add leaf to tree (simulate add_member without Welcome)
-        new_leaf_index = len(tree.leaves)
+        #new_leaf_index = len(tree.leaves)
         
         # Extend tree if needed
-        while tree.nodes <= new_leaf_index * 2:
+        while tree.nodes <= leaf_index:
             tree.extend()
         
         # Add the leaf
-        tree[new_leaf_index] = member_leaf
-        tree[new_leaf_index]._leaf_index = new_leaf_index
+        tree[leaf_index] = member_leaf
+        tree[leaf_index]._leaf_index = leaf_index
         
         # Update indices
         for i in range(len(tree.leaves)):

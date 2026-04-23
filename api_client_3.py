@@ -188,7 +188,7 @@ def process_welcome_simple(welcome_b64: str, private_key: bytes) -> bytes:
     print(f"   Joiner secret extracted: {joiner_secret[:8].hex()}...")
     return joiner_secret
 
-def add_member_to_tree(group, new_member_id: str, committer_priv_bytes: bytes, 
+def add_member_to_tree(group, new_member_id: str, committer_priv_bytes: bytes,new_leaf_index: int, 
                        committer_index: int = 0) -> tuple[bytes, dict]:
     """
     Add a member to the tree and return the joiner_secret.
@@ -234,14 +234,13 @@ def add_member_to_tree(group, new_member_id: str, committer_priv_bytes: bytes,
     
     # Add leaf to tree
     tree = group["tree"]
-    new_leaf_index = len(tree.leaves)
+    #new_leaf_index = len(tree.leaves)
     
-    while tree.nodes <= new_leaf_index * 2:
+    while tree.nodes <= new_leaf_index:
         tree.extend()
     
     tree[new_leaf_index] = new_leaf
     tree[new_leaf_index]._leaf_index = new_leaf_index
-    
     # Update indices
     for i in range(len(tree.leaves)):
         if isinstance(tree.leaves[i], LeafNode):
@@ -271,7 +270,7 @@ def add_member_to_tree(group, new_member_id: str, committer_priv_bytes: bytes,
         "members": group["members"] + [new_member_id],
     }
     group.update(updated_group)
-    
+    print(f"   📝   After adding tree: {len(tree.leaves)} leaves, {tree.nodes} nodes")
     print(f"   Member added at leaf {new_leaf_index}, new epoch: {group['epoch']}")
     
     return joiner_secret, updated_group

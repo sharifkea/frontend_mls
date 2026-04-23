@@ -952,8 +952,7 @@ def create_group_with_online():
         
         # Add to tree and get joiner_secret
         joiner_secret, group = api_client_3.add_member_to_tree(
-            group, user_id, creator_private_key
-        )
+            group, user_id, creator_private_key, leaf_index)
         joiner_secrets.append((user_id, joiner_secret))
         
         # Add to database
@@ -983,6 +982,8 @@ def create_group_with_online():
     
     final_tree.update_leaf_index()
     final_tree.update_node_index()
+
+    print(f" 📝  Final tree: {len(final_tree.leaves)} leaves, {final_tree.nodes} nodes")
     
     # Derive epoch_secret from the tree
     epoch_secret, root_secret = api_client_2.derive_epoch_secret_from_tree(final_tree, cs)

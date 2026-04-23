@@ -144,11 +144,12 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
     new_leaf_index = len(tree.leaves)
 
     # Extend tree if needed
-    while tree.nodes <= new_leaf_index * 2:
+    while tree.nodes <= new_leaf_index:
         tree.extend()
+    tree[new_leaf_index] = new_leaf
 
     # Add the new leaf
-    tree[new_leaf_index] = new_leaf
+    #tree[new_leaf_index] = new_leaf
     tree[new_leaf_index]._leaf_index = new_leaf_index
     
     # Update indices
@@ -481,7 +482,7 @@ def add_member_to_tree_only(group, new_member_id: str, committer_priv_bytes: byt
     new_leaf_index = len(tree.leaves)
 
     # Extend tree if needed
-    while tree.nodes <= new_leaf_index * 2:
+    while tree.nodes <= new_leaf_index:
         tree.extend()
 
     # Add the new leaf
