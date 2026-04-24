@@ -352,10 +352,10 @@ def add_member_to_group():
         # 7. Generate joiner_secret for new member
         import secrets
         joiner_secret = secrets.token_bytes(32)
-        
+        kp_bytes = api_client.get_latest_keypackage(new_user_id)
         # 8. Create Welcome for new member only
         welcome_bytes = api_client_3.create_welcome_simple(
-            group_id_b64, new_user_id, joiner_secret, token
+            group_id_b64, new_user_id, joiner_secret,kp_bytes, token
         )
         
         if welcome_bytes:
@@ -907,7 +907,9 @@ def process_welcome():
 
 @app.route('/api/groups/create-with-online', methods=['POST'])
 def create_group_with_online():
-    """Create a group with all online users (excluding creator)"""
+    """Create a group with all online users (optimized with timers)"""
+    import time
+    
     data = request.json
     group_name = data.get('group_name', 'MLS Test Group')
     online_users = data.get('users', [])
@@ -918,8 +920,20 @@ def create_group_with_online():
     if not creator_id or not token:
         return jsonify({'error': 'Not authenticated'}), 401
     
-    # STEP 1-3: Get creator's key package and create empty group
-    creator_kp_bytes = api_client.get_latest_keypackage(creator_id)
+    timings = {}
+    total_start = time.time()
+    
+    # ========== STEP 1: Get creator's key package ==========
+    step_start = time.time()
+    user_ids = [user.get('user_id') for user in online_users]
+    print(f"📦 Requesting key packages for users: {user_ids}")
+    
+    all_group_ids = user_ids + [creator_id]  # Include creator in batch fetch
+    print(f"📦 Fetching key packages for all group members : {all_group_ids}")
+
+    batch_keypackages = api_client.get_batch_latest_keypackages(all_group_ids, token)
+
+    creator_kp_bytes = batch_keypackages.get(creator_id)
     if not creator_kp_bytes:
         return jsonify({'error': 'No key package found for creator'}), 400
     
@@ -927,68 +941,108 @@ def create_group_with_online():
     if not creator_private_key:
         return jsonify({'error': 'Private key not found'}), 400
 
-    creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
+    creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes["key_package"]))
     creator_leaf = creator_kp.content.leaf_node
+    timings['1_get_creator_kp'] = time.time() - step_start
+    print(f"🗝️✅ Fetched {len(batch_keypackages)} key packages in {timings['1_get_creator_kp']:.3f}s")
 
-    # Create empty group
+    # ========== STEP 2: Create empty group ==========
+    step_start = time.time()
     group = api_client.create_empty_group(creator_leaf, creator_username)
     group_id_b64 = group['group_id_b64']
+    timings['2_create_empty_group'] = time.time() - step_start
     
-    # Save group to database
+    # ========== STEP 3: Save group to database ==========
+    step_start = time.time()
     api_client.create_group_with_id(group_name, 1, token, group_id_b64)
+    timings['3_create_group'] = time.time() - step_start  
+    step_start = time.time()
     api_client.add_group_member(group_id_b64, creator_id, 0, token)
+    timings['4_save_to_db'] = time.time() - step_start    
     
+    # ========== STEP 5: Add members to tree (optimized) ==========
+    step_start = time.time()
     joiner_secrets = []
+    members_for_db = []
     leaf_index = 1
     
-    # Add each member to the tree (this updates the group object)
     for user in online_users:
         user_id = user.get('user_id')
         username = user.get('username')
         
-        user_kp_bytes = api_client.get_latest_keypackage(user_id)
-        if not user_kp_bytes:
+        kp_data = batch_keypackages.get(user_id)
+        if not kp_data:
+            print(f"⚠️ No key package for {username}, skipping")
             continue
         
-        # Add to tree and get joiner_secret
-        joiner_secret, group = api_client_3.add_member_to_tree(
-            group, user_id, creator_private_key, leaf_index)
+        # Add to tree (using optimized function that doesn't update indices per member)
+        joiner_secret, group = api_client_3.add_member_to_tree_optimized(
+            group, user_id, creator_private_key, leaf_index, kp_data["key_package"]
+        )
         joiner_secrets.append((user_id, joiner_secret))
-        
-        # Add to database
-        api_client.add_group_member(group_id_b64, user_id, leaf_index, token)
+        members_for_db.append({"user_id": user_id, "leaf_index": leaf_index, "username": username})
         leaf_index += 1
     
-    # Create simple Welcomes
-    for user_id, joiner_secret in joiner_secrets:
-        welcome_bytes = api_client_3.create_welcome_simple(
-            group_id_b64, user_id, joiner_secret, token
-        )
-        if welcome_bytes:
-            api_client.insert_welcome(group_id_b64, user_id, welcome_bytes, token)
+    timings['5_add_members_loop'] = time.time() - step_start
+    print(f"➕ Added {len(joiner_secrets)} members in {timings['5_add_members_loop']:.3f}s")
     
-    # IMPORTANT: Use the EXISTING tree from the group object, don't rebuild!
+    # ========== STEP 6: Finalize tree indices once ==========
+    step_start = time.time()
+    api_client_3.finalize_tree_indices(group)
+    timings['6_finalize_indices'] = time.time() - step_start
+    print(f"🌲 Finalized tree indices in {timings['6_finalize_indices']:.3f}s")
+    
+    # ========== STEP 7: BATCH - Add all members to database ==========
+    step_start = time.time()
+    if members_for_db:
+        api_client.add_group_members_batch(group_id_b64, members_for_db, token)
+    timings['7_batch_db_add'] = time.time() - step_start
+    print(f"💾 Added {len(members_for_db)} members to DB in batch: {timings['7_batch_db_add']:.3f}s")
+    
+    # ========== STEP 8: Batch create and store Welcomes ==========
+    step_start = time.time()
+
+    # First, create all welcome bytes (this is crypto work, can't batch)
+    welcome_list = []
+    for user_id, joiner_secret in joiner_secrets:
+        kp_data = batch_keypackages.get(user_id)
+        if kp_data:
+            welcome_bytes = api_client_3.create_welcome_simple(
+                group_id_b64, user_id, joiner_secret, kp_data["key_package"], token
+            )
+            if welcome_bytes:
+                welcome_list.append({
+                    "to_user_id": user_id,
+                    "welcome_b64": base64.b64encode(welcome_bytes).decode('ascii')
+                })
+
+    timings['8a_create_welcomes_crypto'] = time.time() - step_start
+    print(f"🔐 Created {len(welcome_list)} welcomes (crypto) in {timings['8a_create_welcomes_crypto']:.3f}s")
+
+    # Then store all welcomes in ONE batch HTTP call
+    if welcome_list:
+        step_start = time.time()
+        api_client.insert_welcome_batch(group_id_b64, welcome_list, token)
+        timings['8b_batch_store_welcomes'] = time.time() - step_start
+        print(f"💾 Batch stored {len(welcome_list)} welcomes in {timings['8b_batch_store_welcomes']:.3f}s")
+    
+    # ========== STEP 9: Final tree processing ==========
+    step_start = time.time()
     final_tree = group['tree']
     final_epoch = group['epoch']
     
-    # Get members from database for count
+    # Get members from database for state
     members_response = api_client.get_group_members(group_id_b64, token)
     members = members_response.get('members', [])
+    timings['9_get_members'] = time.time() - step_start
     
-    # Fix leaf indices on the existing tree
-    for i in range(len(final_tree.leaves)):
-        if isinstance(final_tree.leaves[i], LeafNode):
-            final_tree.leaves[i]._leaf_index = i
-    
-    final_tree.update_leaf_index()
-    final_tree.update_node_index()
-
-    print(f" 📝  Final tree: {len(final_tree.leaves)} leaves, {final_tree.nodes} nodes")
-    
-    # Derive epoch_secret from the tree
+    # ========== STEP 10: Derive secrets ==========
+    step_start = time.time()
     epoch_secret, root_secret = api_client_2.derive_epoch_secret_from_tree(final_tree, cs)
+    timings['10_derive_secrets'] = time.time() - step_start
     
-    # Store final group state
+    # ========== STEP 11: Store group state ==========
+    step_start = time.time()
     if creator_id not in user_crypto_store:
         user_crypto_store[creator_id] = {}
     if 'groups' not in user_crypto_store[creator_id]:
@@ -1005,16 +1059,39 @@ def create_group_with_online():
         epoch_secret=epoch_secret,
         root_secret=root_secret
     )
+    timings['11_store_state'] = time.time() - step_start
     
-    # Update group epoch in database
+    # ========== STEP 12: Update group epoch in database ==========
+    step_start = time.time()
     api_client.update_group_epoch(group_id_b64, final_epoch, token)
+    timings['12_update_epoch'] = time.time() - step_start
+    
+    total_time = time.time() - total_start
+    
+    # ========== PRINT SUMMARY ==========
+    print(f"\n{'='*50}")
+    print(f"⏱️ OPTIMIZED TOTAL TIME: {total_time:.3f}s for {len(online_users)} members")
+    print(f"{'='*50}")
+    print("📊 DETAILED TIMINGS:")
+    for key, value in timings.items():
+        print(f"   {key}: {value:.3f}s")
+    
+    # Compare with previous runs
+    expected_old_time = 12.219 * len(online_users) / 2  # Rough estimate
+    if total_time < expected_old_time:
+        saved = expected_old_time - total_time
+        print(f"\n🎉 SAVED: ~{saved:.1f}s ({(saved/expected_old_time)*100:.0f}% faster)")
+    
+    print(f"{'='*50}\n")
     
     return jsonify({
         'success': True,
         'group_id': group_id_b64,
         'group_name': group_name,
         'member_count': len(online_users) + 1,
-        'members': [creator_username] + [u.get('username') for u in online_users]
+        'members': [creator_username] + [u.get('username') for u in online_users],
+        'timings': timings,
+        'total_time': total_time
     })
 
 @app.route('/api/groups/search', methods=['GET'])

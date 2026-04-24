@@ -26,80 +26,8 @@ cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
 
 BASE_URL = "http://localhost:8000"  # Your FastAPI backend URL
 
-def build_tree_from_database(group_id_b64: str, token: str, existing_tree: RatchetTree = None) -> tuple[RatchetTree, int, dict]:
-    """
-    Build tree from database - ALWAYS builds from scratch for consistency.
-    """
-    print(f"\n🌲 Building tree from database for group {group_id_b64}")
-    
-    # Get members from database
-    members_response = api_client.get_group_members(group_id_b64, token)
-    if 'error' in members_response:
-        raise ValueError(f"Failed to get members: {members_response['error']}")
-    
-    members = members_response.get('members', [])
-    members.sort(key=lambda m: m['leaf_index'])
-    
-    print(f"   Found {len(members)} members in database")
-    for m in members:
-        print(f"      Leaf {m['leaf_index']}: {m['username']}")
-    
-    # ALWAYS BUILD FROM SCRATCH
-    print(f"   Building tree from scratch for {len(members)} members")
-    
-    # Get creator's leaf node to initialize tree
-    creator_id = members[0]['user_id']
-    creator_kp_bytes = api_client.get_latest_keypackage(creator_id)
-    if not creator_kp_bytes:
-        raise ValueError("Creator key package not found")
-    
-    creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
-    creator_leaf = creator_kp.content.leaf_node
-    
-    # Create empty group using the working method
-    from api_client import create_empty_group
-    temp_group = create_empty_group(creator_leaf, "temp")
-    tree = temp_group['tree']
-    
-    print(f"   Created base tree with {len(tree.leaves)} leaves")
-    
-    # Add all members (excluding creator, already at leaf 0)
-    for member in members[1:]:
-        leaf_index = member.get('leaf_index')
-        user_id = member.get('user_id')
-        username = member.get('username')
-        
-        kp_bytes = api_client.get_latest_keypackage(user_id)
-        if not kp_bytes:
-            print(f"   ⚠️ No KeyPackage for {username}, skipping")
-            continue
-        
-        key_package = KeyPackage.deserialize(bytearray(kp_bytes))
-        leaf_node = key_package.content.leaf_node
-        leaf_node._leaf_index = leaf_index
-        
-        # Ensure tree is large enough
-        while len(tree.leaves) <= leaf_index:
-            tree.extend()
-            print(f"      Extended tree to {len(tree.leaves)} leaves")
-        
-        tree[leaf_index] = leaf_node
-        print(f"   ✅ Added leaf {leaf_index}: {username}")
-    
-    tree.update_leaf_index()
-    tree.update_node_index()
-    
-    # Get current epoch
-    group_details = api_client.get_group_details(group_id_b64, token)
-    current_epoch = group_details.get('last_epoch', 0)
-    
-    print(f"   Final tree: {len(tree.leaves)} leaves, {tree.nodes} nodes")
-    print(f"   Current epoch: {current_epoch}")
-    
-    return tree, current_epoch, members
-
 def create_welcome_simple(group_id_b64: str, new_member_id: str, 
-                          joiner_secret: bytes, token: str) -> bytes:
+                          joiner_secret: bytes, kp_bytes: bytes, token: str) -> bytes:
     """
     Create a simple Welcome message containing ONLY the joiner_secret.
     No tree in the Welcome - tree is built from database.
@@ -107,7 +35,8 @@ def create_welcome_simple(group_id_b64: str, new_member_id: str,
     print(f"\n📨 Creating simple Welcome for {new_member_id}")
     
     # 1. Fetch new member's KeyPackage
-    kp_bytes = api_client.get_latest_keypackage(new_member_id)
+    if kp_bytes is None:
+        kp_bytes = api_client.get_latest_keypackage(new_member_id)
     if not kp_bytes:
         print("Cannot create Welcome - KeyPackage not found")
         return None
@@ -188,16 +117,17 @@ def process_welcome_simple(welcome_b64: str, private_key: bytes) -> bytes:
     print(f"   Joiner secret extracted: {joiner_secret[:8].hex()}...")
     return joiner_secret
 
-def add_member_to_tree(group, new_member_id: str, committer_priv_bytes: bytes,new_leaf_index: int, 
-                       committer_index: int = 0) -> tuple[bytes, dict]:
+
+def add_member_to_tree_optimized(group, new_member_id: str, committer_priv_bytes: bytes, new_leaf_index: int, new_kp_bytes: bytes, 
+                                   committer_index: int = 0) -> tuple[bytes, dict]:
     """
-    Add a member to the tree and return the joiner_secret.
-    Does NOT create a Welcome message.
+    Optimized version - reduces tree operations
     """
     print(f"\n➕ Adding {new_member_id} to tree")
     
     # Fetch new member's KeyPackage
-    new_kp_bytes = api_client.get_latest_keypackage(new_member_id)
+    if new_kp_bytes is None:
+        new_kp_bytes = api_client.get_latest_keypackage(new_member_id)
     if not new_kp_bytes:
         return None, group
     
@@ -232,22 +162,19 @@ def add_member_to_tree(group, new_member_id: str, committer_priv_bytes: bytes,ne
     signature_bytes = SignWithLabel(cs, sign_content, committer_priv_bytes)
     authenticated_content.auth.signature = VLBytes(signature_bytes)
     
-    # Add leaf to tree
+    # Add leaf to tree - OPTIMIZED: Only extend once if needed
     tree = group["tree"]
     #new_leaf_index = len(tree.leaves)
     
-    while tree.nodes <= new_leaf_index:
+    # Only extend if necessary (minimal extension)
+    if new_leaf_index >= tree.nodes:
         tree.extend()
     
     tree[new_leaf_index] = new_leaf
     tree[new_leaf_index]._leaf_index = new_leaf_index
-    # Update indices
-    for i in range(len(tree.leaves)):
-        if isinstance(tree.leaves[i], LeafNode):
-            tree.leaves[i]._leaf_index = i
     
-    tree.update_leaf_index()
-    tree.update_node_index()
+    # OPTIMIZED: Only update indices once at the end
+    # (remove the per-iteration updates)
     
     # Derive joiner_secret
     old_init_secret = group.get("init_secret")
@@ -258,7 +185,7 @@ def add_member_to_tree(group, new_member_id: str, committer_priv_bytes: bytes,ne
     new_epoch_secret = group["group_context"].extract_epoch_secret(joiner_secret, psk_secret)
     new_init_secret = DeriveSecret(cs, new_epoch_secret, b"init")
     
-    # Update group
+    # Update group (without updating indices yet - will do batch update at end)
     updated_group = {
         "group_id": group["group_id"],
         "group_id_b64": group.get("group_id_b64"),
@@ -268,9 +195,25 @@ def add_member_to_tree(group, new_member_id: str, committer_priv_bytes: bytes,ne
         "epoch_secret": new_epoch_secret,
         "init_secret": new_init_secret,
         "members": group["members"] + [new_member_id],
+        "_indices_dirty": True  # Mark that indices need updating
     }
     group.update(updated_group)
-    print(f"   📝   After adding tree: {len(tree.leaves)} leaves, {tree.nodes} nodes")
+    
     print(f"   Member added at leaf {new_leaf_index}, new epoch: {group['epoch']}")
     
     return joiner_secret, updated_group
+
+
+def finalize_tree_indices(group):
+    """Call this once after all members are added"""
+    if group.get("_indices_dirty"):
+        tree = group["tree"]
+        # Update all leaf indices
+        for i in range(len(tree.leaves)):
+            if isinstance(tree.leaves[i], LeafNode):
+                tree.leaves[i]._leaf_index = i
+        
+        tree.update_leaf_index()
+        tree.update_node_index()
+        group["_indices_dirty"] = False
+        print(f"   Finalized tree indices: {len(tree.leaves)} leaves, {tree.nodes} nodes")

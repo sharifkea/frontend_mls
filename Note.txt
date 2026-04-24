@@ -6,387 +6,44 @@ pip install -r requirements.txt
 
 python app.py
 
-//startWelcomePolling()
 
-#api_client_3
-build_tree_from_database()
-create_welcome_simple()
-process_welcome_simple()
-add_member_to_tree()
+⏱️ OPTIMIZED TOTAL TIME: 14.215s for 2 members
+==================================================
+📊 DETAILED TIMINGS:
+   1_get_creator_kp: 2.026s
+   2_create_empty_group: 0.000s
+   3_create_group: 2.042s
+   4_save_to_db: 2.021s
+   5_add_members_loop: 0.001s
+   6_finalize_indices: 0.000s
+   7_batch_db_add: 2.028s
+   8a_create_welcomes_crypto: 0.001s
+   8b_batch_store_welcomes: 2.036s
+   9_get_members: 2.027s
+   10_derive_secrets: 0.003s
+   11_store_state: 0.000s
+   12_update_epoch: 2.029s
+==================================================
+ OPTIMIZED TOTAL TIME: 14.337s for 3 members
+==================================================
+📊 DETAILED TIMINGS:
+   1_get_creator_kp: 2.039s
+   2_create_empty_group: 0.000s
+   3_create_group: 2.064s
+   4_save_to_db: 2.029s
+   5_add_members_loop: 0.002s
+   6_finalize_indices: 0.001s
+   7_batch_db_add: 2.038s
+   8a_create_welcomes_crypto: 0.003s
+   8b_batch_store_welcomes: 2.054s
+   9_get_members: 2.043s
+   10_derive_secrets: 0.005s
+   11_store_state: 0.000s
+   12_update_epoch: 2.059s
 
+🎉 SAVED: ~4.0s (22% faster)
 
-
-at checkForPendingWelcomes() in app.js calls
-'/api/welcomes/pending' from app.py
-get_pending_welcomes()
-get_pending_welcomes()
-@app.get("/pending-welcomes")
-
-
-processWelcome()
-'/api/welcomes/process'
-process_single_welcome()
-
-token = session.get('token')
-user_id = session.get('user_id')
-username = session.get('username')
-
-group_state['group_last_epoch'] = group_details.get('last_epoch')
-group_state['member_count'] = member_count
-group_state['my_leaf_index'] = my_leaf_index
-group_state['tree'] = tree
-group_state['tree_serialized'] = tree_b64
-group_state['my_leaf_index'] = my_leaf_index
-group_state['member_count'] = member_count
-user_crypto_store[user_id]['groups'][group_id_b64] = group_state
-
-'/api/welcomes/pending' from app.py
-loadUserGroups()
-
-updated at app.js'
-sendMessage()
-displayMessages(messages)
-loadMessages(groupId)
-selectGroup(group)'
-added at app.py'
-get_messages()
-send_message()'
-added at api_client.py'
-encrypt_and_send_message()'
-
-#api_client_2
-derive_epoch_secret_from_tree
-
-group_state = user_crypto_store[user_id]['groups'][group_id_b64]
-epoch = group_state['group_last_epoch']
-epoch_secret = group_state['epoch_secret']  # Decode from base64
-my_leaf_index = group_state['my_leaf_index']
-cipher_suite = group_state['cipher_suite']
-
-did updated
-
-#app.py
-send_message()
-get_messages()
-get_user_groups()
-
-#app.py:
-# Core endpoints we are using
-@app.route('/')
-@app.route('/api/register')
-@app.route('/api/login')
-@app.route('/api/logout')
-@app.route('/api/online-users')
-@app.route('/api/groups')
-@app.route('/api/groups/create-with-online')
-@app.route('/api/welcomes/pending')
-@app.route('/api/welcomes/process')
-@app.route('/api/messages/send')
-@app.route('/api/messages/get')
-@app.route('/api/debug/active-sessions')  # Keep for debugging
-
-#api_client.py:
-#functions we are using
-# User management
-register_user()
-login_user()
-get_user_by_username()
-
-# Key package management
-upload_keypackage()
-get_latest_keypackage()
-
-# Group management
-create_group_with_id()
-get_my_groups()
-add_group_member()
-get_group_members()
-get_group_details()
-store_epoch_secret()
-update_group_epoch()
-insert_welcome()
-create_empty_group()
-add_member()
-
-# Message management
-send_message()
-get_group_messages()
-encrypt_and_send_message()
-decrypt_message()
-
-# Welcome processing
-get_pending_welcomes()
-process_single_welcome()
-mark_welcome_delivered()
-
-# Helper
-check_welcome_status()  # Add if you need it
-
-
-# from app.js seleceGroup()
-// Set up new interval - use a longer interval for debugging
-    messageRefreshInterval = setInterval(() => {
-        // Only refresh if still on the same group and not already refreshing
-        if (window.selectedGroup && window.selectedGroup.group_id === currentGroupId && !isRefreshing) {
-            console.log(`🔄 Auto-refresh ${++refreshRequestCount}`);
-            loadMessages(window.selectedGroup.group_id_hex);
-        } else if (window.selectedGroup && window.selectedGroup.group_id !== currentGroupId) {
-            // Group changed, clear this interval
-            clearInterval(messageRefreshInterval);
-            messageRefreshInterval = null;
-        }
-    }, 5000); // Increase to 5 seconds for testing
-
-
-#at app.py get_messages()
-# Decrypt messages
-    decrypted_messages = []
-    
-    for msg in result.get('messages', []):
-        try:
-            decrypted = api_client.decrypt_message(msg, group_state, user_id)
-            if decrypted:
-                decrypted_messages.append(decrypted)
-        except Exception as e:
-            print(f"⚠️ Failed to decrypt message {msg.get('message_id')}: {e}")
-            decrypted_messages.append({
-                'message_id': msg.get('message_id'),
-                'sender_username': msg.get('sender_username', 'Unknown'),
-                'text': '[Encrypted - Cannot decrypt]',
-                'created_at': msg.get('created_at')
-            })
-    
-    return jsonify({
-        'success': True,
-        'messages': decrypted_messages
-    })
-
-
-#api_client
-def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, user_id: str, group_state: dict):
-    """
-    Encrypt an application message using current epoch_secret and send to server
-    """
-    try:
-        #if user_id not in user_crypto_store or group_id_b64 not in user_crypto_store[user_id].get('groups', {}):
-            #return {"error": "Not in group or no group state"}
-
-        #group_state = user_crypto_store[user_id]['groups'][group_id_b64]
-        
-        epoch = group_state['group_last_epoch']
-        epoch_secret = group_state['epoch_secret']  # Decode from base64
-        my_leaf_index = group_state['my_leaf_index']
-        cipher_suite = group_state['cipher_suite']
-        group_id_bytes = base64.b64decode(group_id_b64)
-        
-        print(f"🔐 Encrypting message for group {group_id_b64} at epoch {epoch}")
-
-        # 1. Create FramedContent (the content to be encrypted)
-        from mls_stuff.MLS import FramedContent, Sender
-        from mls_stuff.Enums import SenderType, ContentType
-        from mls_stuff.Misc import VLBytes
-        
-        sender = Sender(sender_type=SenderType.member, leaf_index=my_leaf_index)
-        
-        framed_content = FramedContent(
-            group_id=VLBytes(group_id_bytes),
-            epoch=epoch,
-            sender=sender,
-            authenticated_data=VLBytes(b""),
-            content_type=ContentType.application,
-            application_data=VLBytes(message_text.encode('utf-8'))
-        )
-        print("###################### 1. is done. #########################")
-        # 2. Serialize the content to be encrypted
-        content_bytes = framed_content.serialize()
-        print("###################### 2. is done. #########################")
-
-        # 3. Derive message encryption key (MLS spec: DeriveSecret(epoch_secret, "message key"))
-        from mls_stuff.Crypto._derive_secrets import DeriveSecret
-        message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
-        print("###################### 3. is done. #########################")
-        
-        # 4. Generate random nonce (12 bytes for AES-GCM)
-        import secrets
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        
-        nonce = secrets.token_bytes(12)
-        print("###################### 4. is done. #########################")
-
-        # 5. Encrypt the FramedContent
-        aead = AESGCM(message_key)
-        ciphertext = aead.encrypt(nonce, content_bytes, b"")
-        print("###################### 5. is done. #########################")
-
-        # 6. Create PrivateMessage (MLS wire format)
-        from mls_stuff.MLS import PrivateMessage, MLSMessage
-        from mls_stuff.Enums import WireFormat
-        
-        private_msg = PrivateMessage(
-            group_id=VLBytes(group_id_bytes),
-            epoch=epoch,
-            content_type=ContentType.application,
-            authenticated_data=VLBytes(b""),
-            encrypted_sender_data=VLBytes(b""),  # Simplified for now
-            ciphertext=VLBytes(ciphertext)
-        )
-        print("###################### 6. is done. #########################")
-
-        # 7. Wrap in MLSMessage
-        mls_message = MLSMessage(
-            wire_format=WireFormat.MLS_PRIVATE_MESSAGE,
-            msg_content=private_msg
-        )
-        print("###################### 7. is done. #########################")
-
-        # 8. Serialize and send to server
-        serialized = mls_message.serialize()
-        
-        payload = {
-            "group_id": group_id_b64,
-            "ciphertext": base64.b64encode(serialized).decode('ascii'),
-            "nonce": base64.b64encode(nonce).decode('ascii'),
-            "epoch": epoch,
-            "content_type": 1,  # application
-            "wire_format": 2    # private message
-        }
-        
-        response = requests.post(
-            f"{BASE_URL}/messages",
-            json=payload,
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        
-        if response.status_code == 200:
-            print(f"✅ Message sent successfully")
-            return {"success": True, "message": "Message sent"}
-        else:
-            return {"error": f"Server error: {response.text}"}
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {"error": str(e)}
-
-def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite) -> bytes:
-    """Derive epoch secret from a properly repaired tree"""
-    if tree is None:
-        raise ValueError("No tree provided")
-    
-    print(f"Deriving epoch secret from tree with {len(tree.leaves)} leaves")
-    
-    # Final sanity check - ensure ALL leaves have _leaf_index
-    for i, leaf in enumerate(tree.leaves):
-        if isinstance(leaf, LeafNode):
-            if not hasattr(leaf, '_leaf_index') or leaf._leaf_index is None:
-                leaf._leaf_index = i
-                print(f"  Forced leaf index {i} on leaf")
-    
-    # Also ensure node indices
-    for i in range(tree.nodes):
-        node = tree[i]
-        if hasattr(node, '_node_index'):
-            if node._node_index is None:
-                node._node_index = i
-    
-    tree.update_leaf_index()
-    tree.update_node_index()
-    
-    # Now hash should work
-    try:
-        root_secret = tree.hash(cipher_suite)
-        print(f"   root_secret (first 8): {root_secret[:8].hex()}")
-        print(f"✅ tree.hash() succeeded")
-    except Exception as e:
-        print(f"❌ tree.hash() failed: {e}")
-        # Last resort - manual hash calculation
-        raise
-    
-    epoch_secret = DeriveSecret(cipher_suite, root_secret, b"epoch")
-    print(f"   epoch_secret (first 8): {epoch_secret[:8].hex()}")
-    return epoch_secret
-
-fetch('/api/debug/tree/ev5Am8BA0JMKR7OH7oksTA==').then(r => r.json()).then(console.log)create_welcome_for_member()
-
-
-============================================================
-✅ User f2c48588-6cd6-4fbe-a4b7-1c5f269235ec updated group state to epoch 2
-   Tree leaves: 4
-   Tree has 2 leaves, my leaf index: 1
-   Tree nodes: 7
-127.0.0.1 - - [16/Apr/2026 01:49:39] "POST /api/groups/update-state HTTP/1.1" 200 -
-   Original tree hash (first 16): 87046e03fd5dad40a6ce3f40f828347b
-
-============================================================
-🔐 ENCRYPTING MESSAGE - User: 9c6b3b27...
-============================================================
-   🌲 Tree hash: 87046e03fd5dad40...
-   🌲 Leaves count: 4
-   🌲 Nodes count: 7
-   🌿 Leaf 0: index=0
-   🌿 Leaf 1: index=1
-
-============================================================
-🌲 DERIVING EPOCH SECRET FROM TREE
-============================================================
-   Tree leaves: 4
-   Tree nodes: 7
-   Original tree hash (first 16): 87046e03fd5dad40a6ce3f40f828347b
-
-📊 Fixing leaf indices...
-   Leaf 0: _leaf_index = 0
-   Leaf 1: _leaf_index = 1
-
-   Fixed tree hash (first 16): 87046e03fd5dad40a6ce3f40f828347b
-
-   root_secret (first 8): 87046e03fd5dad40
-   epoch_secret (first 8): 1c08d18f0e85bca1
-============================================================
-============================================================
-🔐 ENCRYPTING MESSAGE - User: 6bb4437f...
-============================================================
-   🌲 Tree hash: 87046e03fd5dad40...
-   🌲 Leaves count: 4
-   🌲 Nodes count: 7
-   🌿 Leaf 0: index=0
-   🌿 Leaf 1: index=1
-
-============================================================
-🌲 DERIVING EPOCH SECRET FROM TREE
-============================================================
-   Tree leaves: 4
-   Tree nodes: 7
-   Original tree hash (first 16): 87046e03fd5dad40a6ce3f40f828347b
-
-📊 Fixing leaf indices...
-   Leaf 0: _leaf_index = 0
-   Leaf 1: _leaf_index = 1
-
-   Fixed tree hash (first 16): 87046e03fd5dad40a6ce3f40f828347b
-
-   root_secret (first 8): 87046e03fd5dad40
-   epoch_secret (first 8): 1c08d18f0e85bca1
-============================================================
-============================================================
-🔐 ENCRYPTING MESSAGE - User: f2c48588...
-============================================================
-   🌲 Tree hash: 7afa129421eeb297...
-   🌲 Leaves count: 2
-   🌲 Nodes count: 3
-   🌿 Leaf 0: index=0
-
-============================================================
-🌲 DERIVING EPOCH SECRET FROM TREE
-============================================================
-   Tree leaves: 2
-   Tree nodes: 3
-   Original tree hash (first 16): 7afa129421eeb2977455a2e87f494037
-
-📊 Fixing leaf indices...
-   Leaf 0: _leaf_index = 0
-
-   Fixed tree hash (first 16): 7afa129421eeb2977455a2e87f494037
-
-   root_secret (first 8): 7afa129421eeb297
-   epoch_secret (first 8): e08cef4b702fae38
-============================================================
+Current epoch: 3
+   Final tree has 4 leaves, 7 nodes
+Current epoch: 3
+   Final tree has 4 leaves, 7 nodes

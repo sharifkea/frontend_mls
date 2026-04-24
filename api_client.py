@@ -5,6 +5,7 @@ import api_client_2
 from cryp_hpke import simple_hpke_seal, simple_hpke_open
 from flask import session
 from app import user_crypto_store
+from typing import List
 
 sys.path.insert(0, r"C:\Users\ronys\Documents\RUC\Thesis\frontend_mls\mls_stuff")
 
@@ -515,193 +516,6 @@ def get_pending_welcomes(token: str):
         return {"error": str(e), "welcomes": []}    
         
 
-def process_single_welcome(private_key: bytes, welcome_b64: str, group_id_b64: str, token: str = None, user_id: str = None):
-    """
-    Process MLS Welcome and rebuild the tree from database to ensure it matches the creator's tree.
-    """
-    try:
-        print(f"\n=== Processing Welcome for group {group_id_b64} ===")
-
-        # 1. Decode and parse Welcome
-        welcome_bytes = base64.b64decode(welcome_b64)
-        welcome_bytearray = bytearray(welcome_bytes)
-
-        mls_msg = MLSMessage.deserialize(welcome_bytearray)
-        if not hasattr(mls_msg, 'msg_content') or not isinstance(mls_msg.msg_content, Welcome):
-            return {"error": "Not a valid MLS Welcome message"}
-
-        welcome = mls_msg.msg_content
-
-        if not welcome.secrets:
-            return {"error": "Welcome contains no EncryptedGroupSecrets"}
-
-        #cipher_suite = welcome.cipher_suite
-        cipher_suite = cs  # ← use the same cipher suite as the group, not from welcome (which may be missing or incorrect)
-        encrypted_secret = welcome.secrets[0]
-
-        # 2. HPKE decrypt GroupSecrets
-        enc_gs = encrypted_secret.encrypted_group_secrets
-        group_secrets_raw = simple_hpke_open(
-            private_key,
-            b"MLS 1.0 external init secret",
-            bytes(enc_gs.kem_output.data),
-            bytes(enc_gs.ciphertext.data)
-        )
-
-        group_secrets = GroupSecrets.deserialize(bytearray(group_secrets_raw))
-        joiner_secret = group_secrets.joiner_secret.to_bytes()
-
-        # 3. Decrypt GroupInfo
-        psk_secret = bytes(32)
-        group_info = welcome.decrypt_group_info(
-            joiner_secret=joiner_secret,
-            psk_secret=psk_secret
-        )
-
-        # 4. Get group context info
-        group_context = group_info.group_context
-        group_id_bytes = bytes(group_context.group_id.data)
-        group_id_b64_from_ctx = base64.b64encode(group_id_bytes).decode('ascii')
-
-        # 5. Get members from database
-        members_response = get_group_members(group_id_b64_from_ctx, token)
-        if 'error' in members_response:
-            return {"error": f"Failed to get group members: {members_response['error']}"}
-
-        members = members_response.get('members', [])
-        if not members:
-            return {"error": "No members found in group"}
-
-        print(f"📊 Found {len(members)} members in database")
-
-        # 6. Get the tree from the GroupInfo extension
-        tree = None
-        if hasattr(group_info, 'extensions') and group_info.extensions:
-            for ext in group_info.extensions:
-                if ext.extension_type == ExtensionType.ratchet_tree:
-                    tree_data = bytes(ext.extension_data.data)
-                    tree = RatchetTree.deserialize(bytearray(tree_data))
-                    print(f"✅ Deserialized tree from GroupInfo: {len(tree.leaves)} leaves, {tree.nodes} nodes")
-                    break
-
-        if tree is None:
-            return {"error": "No ratchet_tree extension found in GroupInfo"}
-
-        # ===== CRITICAL FIX: Set _leaf_index for ALL leaf nodes =====
-        print(f"📊 Setting leaf indices for all leaves...")
-        for i in range(len(tree.leaves)):
-            leaf = tree.leaves[i]
-            if isinstance(leaf, LeafNode):
-                leaf._leaf_index = i
-                print(f"   Set leaf[{i}]._leaf_index = {leaf._leaf_index}")
-
-        # Also set node indices for all nodes
-        for i in range(tree.nodes):
-            node = tree[i]
-            if hasattr(node, '_node_index'):
-                node._node_index = i
-
-        # 7. Replace leaf nodes with complete data from database
-        print(f"📊 Replacing leaf nodes with complete data from KeyPackages...")
-        
-        for member in members:
-            leaf_index = member.get('leaf_index')
-            user_id_member = member.get('user_id')
-            username = member.get('username')
-
-            if leaf_index is None:
-                print(f"   ⚠️ No leaf index for {username}, skipping")
-                continue
-
-            # Ensure the tree has enough leaves
-            if leaf_index >= len(tree.leaves):
-                print(f"   ⚠️ Leaf index {leaf_index} out of range (tree has {len(tree.leaves)} leaves), skipping")
-                continue
-
-            # Fetch member's latest KeyPackage
-            kp_bytes = get_latest_keypackage(user_id_member)
-            if not kp_bytes:
-                print(f"   ⚠️ No KeyPackage for {username}, keeping existing leaf")
-                continue
-
-            key_package = KeyPackage.deserialize(bytearray(kp_bytes))
-            leaf_node = key_package.content.leaf_node
-            
-            # CRITICAL: Set the leaf index on the new leaf node
-            leaf_node._leaf_index = leaf_index
-            
-            # Replace the leaf in the tree
-            tree[leaf_index] = leaf_node
-            print(f"   ✅ Replaced leaf {leaf_index} for {username}")
-
-        # Update tree indices again after replacements
-        tree.update_leaf_index()
-        tree.update_node_index()
-
-        # Verify all leaves have _leaf_index set
-        print(f"📊 Verifying leaf indices after replacement...")
-        for i in range(len(tree.leaves)):
-            leaf = tree.leaves[i]
-            if isinstance(leaf, LeafNode):
-                if not hasattr(leaf, '_leaf_index') or leaf._leaf_index is None:
-                    leaf._leaf_index = i
-                    print(f"   Emergency fix: leaf[{i}]._leaf_index = {i}")
-                print(f"   Leaf {i}: _leaf_index = {leaf._leaf_index}")
-
-        # Now derive epoch secret
-        epoch_secret, root_secret = api_client_2.derive_epoch_secret_from_tree(tree, cipher_suite)
-        
-        # 9. Get current epoch from group details
-        group_details = get_group_details(group_id_b64_from_ctx, token)
-        current_epoch = group_details.get('last_epoch', group_context.epoch)
-        print(f"   Current group epoch: {current_epoch}")
-
-        # 10. Find my leaf index
-        my_leaf_index = None
-        for member in members:
-            if member.get('user_id') == user_id:
-                my_leaf_index = member.get('leaf_index')
-                break
-        
-        print(f"   My leaf index: {my_leaf_index}")
-
-        # 11. Build group_state
-        group_state = {
-            "group_id": group_id_bytes,
-            "group_id_b64": group_id_b64_from_ctx,
-            "epoch": current_epoch,
-            "group_context": group_context,
-            "tree": tree,
-            "tree_serialized": base64.b64encode(tree.serialize()).decode('ascii'),
-            "epoch_secret": epoch_secret,
-            "joiner_secret": joiner_secret,
-            "cipher_suite": cipher_suite,
-            "my_leaf_index": my_leaf_index,
-            "member_count": len(members),
-            "group_last_epoch": current_epoch,
-            "joined_at": time.time()
-        }
-
-        print(f"✅ Welcome processed successfully")
-        print(f"   Group ID: {group_state['group_id_b64']}")
-        print(f"   Epoch: {current_epoch}")
-        print(f"   Tree leaves: {len(tree.leaves)}")
-        print(f"   epoch_secret (first 8): {epoch_secret[:8].hex()}")
-
-        return {
-            'success': True,
-            'group_id_b64': group_state['group_id_b64'],
-            'epoch': current_epoch,
-            'group_state_crypto': group_state,
-            'group_info': group_info,
-            'tree': tree
-        }
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {"error": f"Failed to process welcome: {str(e)}"}
-
 def mark_welcome_delivered(welcome_id: str, token: str):
     """Mark a welcome message as delivered"""
     #print(f"--------------------------------------{welcome_id}")
@@ -941,3 +755,77 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     print(f"   Current epoch: {current_epoch}")
     
     return tree, current_epoch, members
+
+def get_batch_latest_keypackages(user_ids: List[str], token: str = None) -> dict:
+    """Get latest key packages for multiple users in one GET request"""
+    try:
+        # Join user_ids with commas for query parameter
+        user_ids_param = ",".join(user_ids)
+        
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        
+        response = requests.get(
+            f"{BASE_URL}/key_packages/batch?user_ids={user_ids_param}",
+            headers=headers
+        )
+        
+        print(f"📦 Response status: {response.status_code}")
+        
+        if response.status_code != 200:
+            print(f"❌ Batch request failed: {response.text}")
+            return {}
+            
+        data = response.json()
+        
+        # Decode base64 key packages back to bytes
+        result = {}
+        for user_id, kp_data in data.get("key_packages", {}).items():
+            if kp_data:
+                result[user_id] = {
+                    "key_package": base64.b64decode(kp_data["key_package"]),
+                    "ref_hash": kp_data["ref_hash"]
+                }
+            else:
+                result[user_id] = None
+        return result
+    except Exception as e:
+        print(f"❌ Batch get keypackages failed: {e}")
+        return {}
+
+
+def add_group_members_batch(group_id_b64: str, members: List[dict], token: str) -> bool:
+    """Add multiple members to a group in one request"""
+    try:
+        group_id_bytes = base64.b64decode(group_id_b64)
+        group_id_hex = group_id_bytes.hex()
+        
+        response = requests.post(
+            f"{BASE_URL}/groups/{group_id_hex}/members/batch",
+            json={"members": members},
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"Batch add members failed: {e}")
+        return False
+
+def insert_welcome_batch(group_id_b64: str, welcomes: List[dict], token: str) -> bool:
+    """Store multiple welcome messages in one request"""
+    try:
+        group_id_bytes = base64.b64decode(group_id_b64)
+        group_id_hex = group_id_bytes.hex()
+        
+        response = requests.post(
+            f"{BASE_URL}/groups/{group_id_hex}/welcome/batch",
+            json={"welcomes": welcomes},
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        response.raise_for_status()
+        print(f"✅ Batch stored {len(welcomes)} welcomes")
+        return True
+    except Exception as e:
+        print(f"❌ Batch store welcomes failed: {e}")
+        return False
