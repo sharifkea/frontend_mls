@@ -277,62 +277,50 @@ def add_member_to_group():
             return jsonify({'error': 'Group not found in crypto store'}), 404
         
         group_state = user_crypto_store[creator_id]['groups'][group_id_b64]
-        current_tree = group_state.get('tree')
+
+        new_tree = group_state.get('tree')
         current_epoch = group_state.get('epoch', 0)
+        new_leaf_index= group_state.get('member_count', 0)
         
         # 2. Get all current members from database
-        members_response = api_client.get_group_members(group_id_b64, token)
-        current_members = members_response.get('members', [])
+        #members_response = api_client.get_group_members(group_id_b64, token)
+        current_members = group_state.get('members_list', [])
+        
         
         # Check if new user is already a member
         if any(m.get('user_id') == new_user_id for m in current_members):
             return jsonify({'error': 'User already in group'}), 400
+        else:
+            #all_members = [current_members] + [{'user_id': new_user_id, 'username': new_username}]
+            all_group_ids= [m.get('user_id') for m in current_members] + [new_user_id]
+            print(f"✅ User {new_user_id} is not currently a member, proceeding to add")
         
         # 3. Get new member's key package
-        new_kp_bytes = api_client.get_latest_keypackage(new_user_id)
+        batch_keypackages = api_client.get_batch_latest_keypackages(all_group_ids, token)
+        
+        creator_kp_bytes = batch_keypackages.get(creator_id)
+        if not creator_kp_bytes:
+            return jsonify({'error': 'No key package found for creator'}), 400
+        
+        creator_private_key = user_crypto_store[creator_id].get('private_key')
+        if not creator_private_key:
+            return jsonify({'error': 'Private key not found'}), 400
+
+        creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes["key_package"]))
+
+
+        new_kp_bytes = batch_keypackages.get(new_user_id)
+        
         if not new_kp_bytes:
             return jsonify({'error': 'No key package for new user'}), 400
         
-        # 4. Rebuild the tree with all members (including new one)
-        creator_kp_bytes = api_client.get_latest_keypackage(creator_id)
-        creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
-        creator_leaf = creator_kp.content.leaf_node
-        
-        # Create new empty group
-        temp_group = api_client.create_empty_group(creator_leaf, "temp")
-        new_tree = temp_group['tree']
-        
-        # Add all existing members (excluding creator, already at leaf 0)
-        for member in current_members:
-            if member.get('user_id') == creator_id:
-                continue
-            
-            member_id = member.get('user_id')
-            member_kp_bytes = api_client.get_latest_keypackage(member_id)
-            if member_kp_bytes:
-                member_kp = KeyPackage.deserialize(bytearray(member_kp_bytes))
-                member_leaf = member_kp.content.leaf_node
                 
-                leaf_index = len(new_tree.leaves)
-                while new_tree.nodes <= leaf_index * 2:
-                    new_tree.extend()
-                
-                new_tree[leaf_index] = member_leaf
-                new_tree[leaf_index]._leaf_index = leaf_index
-                
-                for i in range(len(new_tree.leaves)):
-                    if isinstance(new_tree.leaves[i], LeafNode):
-                        new_tree.leaves[i]._leaf_index = i
-                
-                new_tree.update_leaf_index()
-                new_tree.update_node_index()
-        
         # 5. Add the new member
-        new_kp = KeyPackage.deserialize(bytearray(new_kp_bytes))
+        new_kp = KeyPackage.deserialize(bytearray(new_kp_bytes["key_package"]))
         new_leaf = new_kp.content.leaf_node
         
-        new_leaf_index = len(new_tree.leaves)
-        while new_tree.nodes <= new_leaf_index * 2:
+        #new_leaf_index = len(new_tree.leaves)
+        while new_tree.nodes <= new_leaf_index:
             new_tree.extend()
         
         new_tree[new_leaf_index] = new_leaf
@@ -352,18 +340,18 @@ def add_member_to_group():
         # 7. Generate joiner_secret for new member
         import secrets
         joiner_secret = secrets.token_bytes(32)
-        kp_bytes = api_client.get_latest_keypackage(new_user_id)
+        #kp_bytes = api_client.get_latest_keypackage(new_user_id)
         # 8. Create Welcome for new member only
         welcome_bytes = api_client_3.create_welcome_simple(
-            group_id_b64, new_user_id, joiner_secret,kp_bytes, token
+            group_id_b64, new_user_id, joiner_secret,new_kp_bytes["key_package"], token
         )
         
         if welcome_bytes:
             api_client.insert_welcome(group_id_b64, new_user_id, welcome_bytes, token)
         
         # 9. Add new member to database
-        new_leaf_index_in_db = len(current_members)
-        api_client.add_group_member(group_id_b64, new_user_id, new_leaf_index_in_db, token)
+        #new_leaf_index_in_db = len(current_members)
+        api_client.add_group_member(group_id_b64, new_user_id, new_leaf_index, token)
         
         # 10. Update group epoch in database
         api_client.update_group_epoch(group_id_b64, new_epoch, token)
@@ -395,7 +383,7 @@ def add_member_to_group():
             'new_member': {
                 'user_id': new_user_id,
                 'username': new_username,
-                'leaf_index': new_leaf_index_in_db
+                'leaf_index': new_leaf_index
             },
             'tree_serialized': base64.b64encode(new_tree.serialize()).decode('ascii')
         }
@@ -413,7 +401,7 @@ def add_member_to_group():
             'new_member': {
                 'user_id': new_user_id,
                 'username': new_username,
-                'leaf_index': new_leaf_index_in_db
+                'leaf_index': new_leaf_index
             }
         }
         
