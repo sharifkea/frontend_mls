@@ -202,6 +202,8 @@ def update_group_state():
     
     user_id = session.get('user_id')
     token = session.get('token')
+    group_state = user_crypto_store[user_id]['groups'][group_id_b64]
+    final_secret = group_state.get('final_secret', bytes(32))  # Get final_secret from stored state if available
     
     if not user_id or not token:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -214,7 +216,7 @@ def update_group_state():
         
         # Now derive epoch_secret
         root_secret = tree.hash(cs)
-        epoch_secret = DeriveSecret(cs, root_secret, b"epoch")
+        epoch_secret = DeriveSecret(cs, root_secret+final_secret, b"epoch")
         
         # Find my leaf index
         my_leaf_index = None
@@ -238,6 +240,7 @@ def update_group_state():
             my_user_id=user_id,
             members=members,
             epoch_secret=epoch_secret,
+            final_secret=final_secret,
             root_secret=root_secret
         )
 
@@ -281,6 +284,7 @@ def add_member_to_group():
         new_tree = group_state.get('tree')
         current_epoch = group_state.get('epoch', 0)
         new_leaf_index= group_state.get('member_count', 0)
+        final_secret = group_state.get('final_secret', bytes(32))   
         
         # 2. Get all current members from database
         #members_response = api_client.get_group_members(group_id_b64, token)
@@ -334,16 +338,16 @@ def add_member_to_group():
         new_tree.update_node_index()
         
         # 6. Derive new epoch secret
-        new_epoch_secret, new_root_secret = api_client_2.derive_epoch_secret_from_tree(new_tree, cs)
+        new_epoch_secret, new_root_secret = api_client_2.derive_epoch_secret_from_tree(new_tree, cs,final_secret)
         new_epoch = current_epoch + 1
         
         # 7. Generate joiner_secret for new member
-        import secrets
-        joiner_secret = secrets.token_bytes(32)
+        #import secrets
+        #joiner_secret = secrets.token_bytes(32)
         #kp_bytes = api_client.get_latest_keypackage(new_user_id)
         # 8. Create Welcome for new member only
         welcome_bytes = api_client_3.create_welcome_simple(
-            group_id_b64, new_user_id, joiner_secret,new_kp_bytes["key_package"], token
+            group_id_b64, new_user_id, final_secret,new_kp_bytes["key_package"], token
         )
         
         if welcome_bytes:
@@ -371,6 +375,7 @@ def add_member_to_group():
             my_user_id=creator_id,
             members=all_members,
             epoch_secret=new_epoch_secret,
+            final_secret=final_secret,
             root_secret=new_root_secret
         )
         
@@ -793,7 +798,7 @@ def process_welcome():
     welcome_b64 = data.get('welcome_b64')
     group_id_b64 = data.get('group_id')
     welcome_id = data.get('welcome_id')
-    
+    user_name = session.get('username', 'Unknown')
     if not welcome_id:
         return jsonify({'error': 'Missing welcome_id'}), 400
     
@@ -830,8 +835,13 @@ def process_welcome():
         return jsonify({'error': 'No matching private key found'}), 400
     
     # 1. Get joiner_secret from Welcome
-    joiner_secret = api_client_3.process_welcome_simple(welcome_b64, init_priv)
+    final_secret = api_client_3.process_welcome_simple(welcome_b64, init_priv)
     
+    if final_secret:
+        print(f"\n🔍 Final secret for: {user_name} is  {final_secret[:8].hex()}")
+    else:
+        print(f"\n🔍 No final secret found for {user_name}")
+
     # 2. Build tree using the working replay method
     tree, current_epoch, members = api_client.build_tree_by_replay(group_id_b64, token)
     
@@ -849,7 +859,7 @@ def process_welcome():
     
     # Now derive epoch_secret
     root_secret = tree.hash(cs)
-    epoch_secret = DeriveSecret(cs, root_secret, b"epoch")
+    epoch_secret = DeriveSecret(cs, root_secret+final_secret, b"epoch")
     
     
     # 9. Find my leaf index
@@ -874,10 +884,10 @@ def process_welcome():
         my_user_id=user_id,
         members=members,
         epoch_secret=epoch_secret,
+        final_secret=final_secret,
         root_secret=root_secret
     )
-
-    
+        
     user_crypto_store[user_id]['groups'][group_id_b64] = group_state
     
     # Mark welcome as delivered
@@ -950,9 +960,10 @@ def create_group_with_online():
     
     # ========== STEP 5: Add members to tree (optimized) ==========
     step_start = time.time()
-    joiner_secrets = []
+    user_ids = [user.get('user_id') for user in online_users]
     members_for_db = []
     leaf_index = 1
+    final_secret= None
     
     for user in online_users:
         user_id = user.get('user_id')
@@ -967,12 +978,13 @@ def create_group_with_online():
         joiner_secret, group = api_client_3.add_member_to_tree_optimized(
             group, user_id, creator_private_key, leaf_index, kp_data["key_package"]
         )
-        joiner_secrets.append((user_id, joiner_secret))
+        #joiner_secrets.append((user_id, joiner_secret))
+        final_secret = joiner_secret  # Keep overwriting to get the final one after all adds
         members_for_db.append({"user_id": user_id, "leaf_index": leaf_index, "username": username})
         leaf_index += 1
     
     timings['5_add_members_loop'] = time.time() - step_start
-    print(f"➕ Added {len(joiner_secrets)} members in {timings['5_add_members_loop']:.3f}s")
+    #print(f"➕ Added {len(joiner_secrets)} members in {timings['5_add_members_loop']:.3f}s")
     
     # ========== STEP 6: Finalize tree indices once ==========
     step_start = time.time()
@@ -992,11 +1004,11 @@ def create_group_with_online():
 
     # First, create all welcome bytes (this is crypto work, can't batch)
     welcome_list = []
-    for user_id, joiner_secret in joiner_secrets:
+    for user_id in user_ids:
         kp_data = batch_keypackages.get(user_id)
         if kp_data:
             welcome_bytes = api_client_3.create_welcome_simple(
-                group_id_b64, user_id, joiner_secret, kp_data["key_package"], token
+                group_id_b64, user_id, final_secret, kp_data["key_package"], token
             )
             if welcome_bytes:
                 welcome_list.append({
@@ -1026,7 +1038,7 @@ def create_group_with_online():
     
     # ========== STEP 10: Derive secrets ==========
     step_start = time.time()
-    epoch_secret, root_secret = api_client_2.derive_epoch_secret_from_tree(final_tree, cs)
+    epoch_secret, root_secret = api_client_2.derive_epoch_secret_from_tree(final_tree, cs,final_secret)
     timings['10_derive_secrets'] = time.time() - step_start
     
     # ========== STEP 11: Store group state ==========
@@ -1035,6 +1047,11 @@ def create_group_with_online():
         user_crypto_store[creator_id] = {}
     if 'groups' not in user_crypto_store[creator_id]:
         user_crypto_store[creator_id]['groups'] = {}
+    
+    if final_secret:
+        print(f"\n🔍 Final secret for: {creator_username} is  {final_secret[:8].hex()}")
+    else:
+        print(f"\n🔍 No final secret found for {creator_username}")
     
     user_crypto_store[creator_id]['groups'][group_id_b64] = initialize_group_state_with_keys(
         group_id_b64=group_id_b64,
@@ -1045,6 +1062,7 @@ def create_group_with_online():
         my_user_id=creator_id,
         members=members,
         epoch_secret=epoch_secret,
+        final_secret=final_secret,
         root_secret=root_secret
     )
     timings['11_store_state'] = time.time() - step_start
@@ -1168,7 +1186,7 @@ def debug_user_state():
     
     return jsonify(result)
 
-def initialize_group_state_with_keys(group_id_b64: str, tree, cipher_suite, my_leaf_index: int, current_epoch: int, my_user_id: str, members: list, epoch_secret=None, root_secret=None) -> dict:
+def initialize_group_state_with_keys(group_id_b64: str, tree, cipher_suite, my_leaf_index: int, current_epoch: int, my_user_id: str, members: list, epoch_secret=None,final_secret=None, root_secret=None) -> dict:
     """
     Initialize group state with per-sender root key tracking and message read tracking.
     """
@@ -1213,6 +1231,7 @@ def initialize_group_state_with_keys(group_id_b64: str, tree, cipher_suite, my_l
         'per_sender_roots': per_sender_roots,
         'own_send_root': own_send_root,
         'members_list': members,
+        'final_secret': final_secret,  # Store final secrets per epoch for debugging
         # NEW: Track displayed messages
         'last_displayed_message_id': None,  # Last message ID shown to user
         'displayed_messages': []            # List of all displayed message IDs

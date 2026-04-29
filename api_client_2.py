@@ -281,7 +281,7 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
 
     return welcome_bytes, updated_group
 
-def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite) -> bytes:
+def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite, final_secret=None) -> bytes:
     """Derive epoch secret from a properly repaired tree"""
     if tree is None:
         raise ValueError("No tree provided")
@@ -329,7 +329,8 @@ def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite) 
     
     # Derive epoch secret
     root_secret = tree.hash(cipher_suite)
-    epoch_secret = DeriveSecret(cipher_suite, root_secret, b"epoch")
+    
+    epoch_secret = DeriveSecret(cipher_suite, root_secret+final_secret, b"epoch")
     
     print(f"\n   root_secret (first 8): {root_secret[:8].hex()}")
     print(f"   epoch_secret (first 8): {epoch_secret[:8].hex()}")

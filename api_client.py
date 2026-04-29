@@ -578,7 +578,7 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         print(f"   Epoch: {epoch}")
         print(f"   My leaf index: {my_leaf_index}")
         print(f"   Message: {message_text[:50]}...")
-        print(f"🔐 Encrypting message using derived epoch_secret (epoch {epoch})")
+        print(f"🔐 Encrypting message using derived epoch_secret ({epoch_secret[:8].hex()}")
 
         sender = Sender(sender_type=SenderType.member, leaf_index=my_leaf_index)
         
@@ -592,7 +592,7 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         )
         content_bytes = framed_content.serialize()
         message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
-        
+        print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
         nonce = secrets.token_bytes(12)
         aead = AESGCM(message_key)
         ciphertext = aead.encrypt(nonce, content_bytes, b"")
@@ -638,7 +638,7 @@ def decrypt_message(msg_data: dict, group_state: dict, user_id: str):
         print(f"Decrypting message - epoch {epoch}, sender: {msg_data.get('sender_username')}")
 
         message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
-        print(f"Message key (first 8 bytes): {message_key[:8].hex()}")
+        print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
 
         ciphertext = base64.b64decode(msg_data['ciphertext'])
         nonce = base64.b64decode(msg_data['nonce'])
