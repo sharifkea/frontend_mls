@@ -575,6 +575,7 @@ async function handleLogin() {
             // Load data
             await loadUserGroups(data.user_id, data.token);
             await checkForPendingWelcomes();
+            //await restoreGroupStates(data.user_id, data.token);
         }
     } catch (error) {
         console.error('Login error:', error);
@@ -668,6 +669,31 @@ function displayGroups(groups) {
         
         groupsList.appendChild(groupEl);
     });
+}
+
+async function restoreGroupStates(userId, token) {
+    console.log('🔄 Restoring group states...');
+    
+    try {
+        const response = await fetch('/api/groups/restore-states', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ user_id: userId })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log(`✅ Restored ${data.restored_count} group states`);
+        } else {
+            console.error('Failed to restore group states:', data.error);
+        }
+    } catch (error) {
+        console.error('Error restoring group states:', error);
+    }
 }
 
 // ==================== MESSAGING ====================

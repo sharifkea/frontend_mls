@@ -829,3 +829,4 @@ def insert_welcome_batch(group_id_b64: str, welcomes: List[dict], token: str) ->
     except Exception as e:
         print(f"❌ Batch store welcomes failed: {e}")
         return False
+

@@ -7,6 +7,8 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from cryptography.fernet import Fernet
 import warnings
+
+import save_local
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Create Flask app first
@@ -202,58 +204,20 @@ def update_group_state():
     
     user_id = session.get('user_id')
     token = session.get('token')
-    group_state = user_crypto_store[user_id]['groups'][group_id_b64]
-    final_secret = group_state.get('final_secret', bytes(32))  # Get final_secret from stored state if available
     
     if not user_id or not token:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        print(f"\n🔄 Updating group state for user {user_id}")
-        
-        # Build tree using the working replay method
-        tree, current_epoch, members = api_client.build_tree_by_replay(group_id_b64, token)
-        
-        # Now derive epoch_secret
-        root_secret = tree.hash(cs)
-        epoch_secret = DeriveSecret(cs, root_secret+final_secret, b"epoch")
-        
-        # Find my leaf index
-        my_leaf_index = None
-        for member in members:
-            if member.get('user_id') == user_id:
-                my_leaf_index = member.get('leaf_index')
-                break
-        
-        # Store group state
-        if user_id not in user_crypto_store:
-            user_crypto_store[user_id] = {}
-        if 'groups' not in user_crypto_store[user_id]:
-            user_crypto_store[user_id]['groups'] = {}
-        
-        user_crypto_store[user_id]['groups'][group_id_b64] = initialize_group_state_with_keys(
-            group_id_b64=group_id_b64,
-            tree=tree,
-            cipher_suite=cs,
-            my_leaf_index=my_leaf_index,
-            current_epoch=current_epoch,
-            my_user_id=user_id,
-            members=members,
-            epoch_secret=epoch_secret,
-            final_secret=final_secret,
-            root_secret=root_secret
-        )
-
-        
-        print(f"✅ User {user_id} group state updated")
-        print(f"   Tree has {len(tree.leaves)} leaves, epoch {current_epoch}")
-        
-        return jsonify({'success': True})
+        new_group_state = update_state(user_id, group_id_b64, token)
+        if new_group_state:
+            user_crypto_store[user_id]['groups'][group_id_b64] = new_group_state
+            return jsonify({'success': True})
+        else:
+            return jsonify({'error': 'Failed to update group state'}), 400
         
     except Exception as e:
         print(f"Error updating group state: {e}")
-        import traceback
-        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
     
 @app.route('/api/groups/add-member', methods=['POST'])
@@ -365,6 +329,8 @@ def add_member_to_group():
         updated_members_response = api_client.get_group_members(group_id_b64, token)
         all_members = updated_members_response.get('members', [])
 
+        #save to local store
+        save_local.save_final_secret(creator_id, group_id_b64, final_secret)
         # 11. Update creator's group state
         user_crypto_store[creator_id]['groups'][group_id_b64] = initialize_group_state_with_keys(
             group_id_b64=group_id_b64,
@@ -694,6 +660,24 @@ def get_messages():
     except:
         return jsonify({'error': 'Invalid group_id hex'}), 400
     
+     # Initialize user structure if needed
+    if user_id not in user_crypto_store:
+        user_crypto_store[user_id] = {}
+    if 'groups' not in user_crypto_store[user_id]:
+        user_crypto_store[user_id]['groups'] = {}
+    
+    # ✅ FIRST: Get group_state from store
+    group_state = user_crypto_store[user_id]['groups'].get(group_id_b64)
+        
+    if not group_state:
+        print(f"⚠️ Group state missing for {group_id_b64}, restoring on demand...")
+        new_group_state = update_state(user_id, group_id_b64, token)
+        if new_group_state:
+            user_crypto_store[user_id]['groups'][group_id_b64] = new_group_state
+            group_state = new_group_state
+        else:
+            return jsonify({'error': 'Could not restore group state'}), 400
+        
     # Get group state
     if user_id not in user_crypto_store:
         return jsonify({'messages': []})
@@ -703,8 +687,6 @@ def get_messages():
     
     if group_id_b64 not in user_crypto_store[user_id]['groups']:
         return jsonify({'messages': []})
-    
-    group_state = user_crypto_store[user_id]['groups'][group_id_b64]
     
     # ✅ NOW this exists because we use initialize_group_state_with_keys
     last_message_id = group_state.get('last_displayed_message_id')
@@ -875,6 +857,9 @@ def process_welcome():
     if 'groups' not in user_crypto_store[user_id]:
         user_crypto_store[user_id]['groups'] = {}
     
+    #save to local store
+    save_local.save_final_secret(user_id, group_id_b64, final_secret)
+
     group_state = initialize_group_state_with_keys(
         group_id_b64=group_id_b64,
         tree=tree,
@@ -1053,6 +1038,9 @@ def create_group_with_online():
     else:
         print(f"\n🔍 No final secret found for {creator_username}")
     
+    #save to local store
+    save_local.save_final_secret(creator_id, group_id_b64, final_secret)
+    
     user_crypto_store[creator_id]['groups'][group_id_b64] = initialize_group_state_with_keys(
         group_id_b64=group_id_b64,
         tree=final_tree,
@@ -1185,6 +1173,64 @@ def debug_user_state():
             }
     
     return jsonify(result)
+
+def update_state(user_id, group_id_b64, token=None):
+    print(f"\n🔄 Updating group state for user {user_id}")
+    
+    # Initialize user crypto store if needed
+    if user_id not in user_crypto_store:
+        user_crypto_store[user_id] = {}
+    if 'groups' not in user_crypto_store[user_id]:
+        user_crypto_store[user_id]['groups'] = {}
+    
+    # Get final_secret from stored state or local file
+    group_state = user_crypto_store[user_id]['groups'].get(group_id_b64)
+    if group_state:
+        final_secret = group_state.get('final_secret', bytes(32))
+    else:
+        final_secret = save_local.get_final_secret(user_id, group_id_b64)
+        if final_secret and isinstance(final_secret, str):
+            final_secret = bytes.fromhex(final_secret) if final_secret.startswith('0x') else final_secret.encode()
+    
+    if not final_secret:
+        print(f"⚠️ No final_secret found for user {user_id}, group {group_id_b64}")
+        return None
+    
+    if not token:
+        print(f"⚠️ No token provided for user {user_id}")
+        return None
+    
+    # Build tree using the working replay method
+    tree, current_epoch, members = api_client.build_tree_by_replay(group_id_b64, token)
+    
+    # Derive epoch secret
+    root_secret = tree.hash(cs)
+    epoch_secret = DeriveSecret(cs, root_secret + final_secret, b"epoch")
+    
+    # Find my leaf index
+    my_leaf_index = None
+    for member in members:
+        if member.get('user_id') == user_id:
+            my_leaf_index = member.get('leaf_index')
+            break
+    
+    new_group_state = initialize_group_state_with_keys(
+        group_id_b64=group_id_b64,
+        tree=tree,
+        cipher_suite=cs,
+        my_leaf_index=my_leaf_index,
+        current_epoch=current_epoch,
+        my_user_id=user_id,
+        members=members,
+        epoch_secret=epoch_secret,
+        final_secret=final_secret,
+        root_secret=root_secret
+    )
+    
+    print(f"✅ User {user_id} group state updated")
+    print(f"   Tree has {len(tree.leaves)} leaves, epoch {current_epoch}")
+    
+    return new_group_state
 
 def initialize_group_state_with_keys(group_id_b64: str, tree, cipher_suite, my_leaf_index: int, current_epoch: int, my_user_id: str, members: list, epoch_secret=None,final_secret=None, root_secret=None) -> dict:
     """

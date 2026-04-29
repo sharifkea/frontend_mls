@@ -140,3 +140,11 @@ Message key (first 8 bytes): 48bef73fe9fdaf93
 🔐 Encrypting message using derived epoch_secret (a3032fed873b366b
 🗝️ Message key (first 8 bytes): 80369d51aa42d29c
 🗝️ Message key (first 8 bytes): 27087cc33a4d4986
+
+
+selectGroup called for group: MLS Test Group
+app.js:364 Session loaded from sessionStorage: 35e9acb6-bd39-4ec5-a1a6-cb30cfe89a71
+app.js:741 📩 Fetching new messages for group: 555023349e7d216d5f498ce1d4455631
+app.js:767 Failed to load messages: undefined
+
+Failed to send message: No groups found
