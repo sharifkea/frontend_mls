@@ -6,6 +6,8 @@ from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
 from dotenv import load_dotenv
 from cryptography.fernet import Fernet
+from flask_debugtoolbar import DebugToolbarExtension
+
 import warnings
 
 import save_local
@@ -28,6 +30,9 @@ from mls_stuff.Enums import  WireFormat
 from mls_stuff.RatchetTree import RatchetTree, RatchetNode, LeafNode
 from mls_stuff.Enums import ExtensionType
 from mls_stuff.Crypto._derive_secrets import DeriveSecret
+
+app.config['DEBUG_TB_PROFILER_ENABLED'] = True
+toolbar = DebugToolbarExtension(app)
 
 cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 
 load_dotenv()
@@ -80,6 +85,7 @@ def login():
     data = request.json
     username = data.get('username')
     password = data.get('password')
+    total_login_time=0
     
     print(f"Login attempt for username: {username}")
     
@@ -87,6 +93,7 @@ def login():
         return jsonify({'error': 'Username and password required'}), 400
     
     try:
+        start = time.perf_counter()
         # 1. Login to get user_id and token
         result = api_client.login_user(username, password)
        #print(f"Login result: {result}")
@@ -97,8 +104,12 @@ def login():
         user_id = result['user_id']
         token = result['access_token']
         
-    
-    
+        end = time.perf_counter()
+        user_pass_db_ms = (end - start) * 1000
+        print(f"⏱️ Time for user authentication and database access: {user_pass_db_ms:.2f}ms")
+        total_login_time += user_pass_db_ms
+        start = time.perf_counter()
+        
         # Check if there's an existing group that this user should join
         groups_response = api_client.get_my_groups(token)
         groups = groups_response.get('groups', [])
@@ -130,18 +141,34 @@ def login():
                 except Exception as e:
                     print(f"Failed to notify: {e}")
         
+        
         print(f"   - User ID: {user_id}")
         print(f"   - Token: {token}")
+        end = time.perf_counter()
+        not_gro_cre_ms = (end - start) * 1000
+        print(f"⏱️ Time for notifying group creators: {not_gro_cre_ms:.2f}ms")
+        total_login_time += not_gro_cre_ms
+        start = time.perf_counter()
         # 2. Generate FRESH key package for this session
         #print(f"Generating fresh key package for {username}...")
         private_key, init_priv, key_package_bytes = create_keypakage.GeneratKeyPackage(username)
-        
+
+        end = time.perf_counter()
+        gen_key_pak_ms = (end - start) * 1000
+        print(f"⏱️ Time for generating key package: {gen_key_pak_ms:.2f}ms")
+        total_login_time += gen_key_pak_ms
+        start = time.perf_counter()
         # 3. Upload key package to backend database
        #print(f"Uploading new key package (old ones will be deactivated)...")
         upload_result = api_client.upload_keypackage(user_id, key_package_bytes)
         # Deserialize to get the proper MLS reference hash
         
+        end = time.perf_counter()
+        sav_key_pak_db_ms = (end - start) * 1000
+        print(f"⏱️ Time for saving key package to database: {sav_key_pak_db_ms:.2f}ms")
+        total_login_time += sav_key_pak_db_ms
 
+        start = time.perf_counter()
         # Compute reference hash (same as in MLS)
         key_package = KeyPackage.deserialize(bytearray(key_package_bytes))
         ref_hash_hex = key_package.reference_hash(cs).hex() 
@@ -179,6 +206,11 @@ def login():
         session['username'] = username
         session.permanent = True  # Make session permanent
         
+        end = time.perf_counter()
+        sav_act_ses_ms = (end - start) * 1000
+        print(f"⏱️ Time for saving active session: {sav_act_ses_ms:.2f}ms")
+        total_login_time += sav_act_ses_ms
+        print(f"✅ User {username} logged in successfully! ⏱️Total login time: {total_login_time:.2f}ms")
        #print(f"Session after login: {dict(session)}")
        #print(f"Active sessions now: {len(active_sessions)} users")
         
@@ -209,12 +241,18 @@ def update_group_state():
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
+        start = time.perf_counter()
         new_group_state = update_state(user_id, group_id_b64, token)
         if new_group_state:
             user_crypto_store[user_id]['groups'][group_id_b64] = new_group_state
+            end = time.perf_counter()
+            tim_gr_sta_ms = (end - start) * 1000
+            print(f"⏱️📝 Time for updating group state: {tim_gr_sta_ms:.2f}ms")
             return jsonify({'success': True})
         else:
             return jsonify({'error': 'Failed to update group state'}), 400
+        
+        
         
     except Exception as e:
         print(f"Error updating group state: {e}")
@@ -223,6 +261,10 @@ def update_group_state():
 @app.route('/api/groups/add-member', methods=['POST'])
 def add_member_to_group():
     """Creator adds a new member to an existing group"""
+    
+    timings = {}
+    total_start = time.perf_counter()
+    
     data = request.json
     group_id_b64 = data.get('group_id')
     new_user_id = data.get('new_user_id')
@@ -236,7 +278,8 @@ def add_member_to_group():
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        # 1. Get current group state from creator's crypto store
+        # ========== STEP 1: Get current group state ==========
+        step_start = time.perf_counter()
         if creator_id not in user_crypto_store or 'groups' not in user_crypto_store[creator_id]:
             return jsonify({'error': 'Group state not found'}), 400
         
@@ -247,25 +290,29 @@ def add_member_to_group():
 
         new_tree = group_state.get('tree')
         current_epoch = group_state.get('epoch', 0)
-        new_leaf_index= group_state.get('member_count', 0)
+        new_leaf_index = group_state.get('member_count', 0)
         final_secret = group_state.get('final_secret', bytes(32))   
         
         # 2. Get all current members from database
-        #members_response = api_client.get_group_members(group_id_b64, token)
         current_members = group_state.get('members_list', [])
+        timings['1_get_group_state'] = time.perf_counter() - step_start
         
-        
-        # Check if new user is already a member
+        # ========== STEP 2: Check if new user is already a member ==========
+        step_start = time.perf_counter()
         if any(m.get('user_id') == new_user_id for m in current_members):
             return jsonify({'error': 'User already in group'}), 400
         else:
-            #all_members = [current_members] + [{'user_id': new_user_id, 'username': new_username}]
-            all_group_ids= [m.get('user_id') for m in current_members] + [new_user_id]
+            all_group_ids = [m.get('user_id') for m in current_members] + [new_user_id]
             print(f"✅ User {new_user_id} is not currently a member, proceeding to add")
+        timings['2_check_membership'] = time.perf_counter() - step_start
         
-        # 3. Get new member's key package
+        # ========== STEP 3: Get batch key packages ==========
+        step_start = time.perf_counter()
         batch_keypackages = api_client.get_batch_latest_keypackages(all_group_ids, token)
+        timings['3_batch_keypackages'] = time.perf_counter() - step_start
         
+        # ========== STEP 4: Get creator and new member key packages ==========
+        step_start = time.perf_counter()
         creator_kp_bytes = batch_keypackages.get(creator_id)
         if not creator_kp_bytes:
             return jsonify({'error': 'No key package found for creator'}), 400
@@ -276,18 +323,16 @@ def add_member_to_group():
 
         creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes["key_package"]))
 
-
         new_kp_bytes = batch_keypackages.get(new_user_id)
-        
         if not new_kp_bytes:
             return jsonify({'error': 'No key package for new user'}), 400
+        timings['4_get_kp'] = time.perf_counter() - step_start
         
-                
-        # 5. Add the new member
+        # ========== STEP 5: Add the new member to tree ==========
+        step_start = time.perf_counter()
         new_kp = KeyPackage.deserialize(bytearray(new_kp_bytes["key_package"]))
         new_leaf = new_kp.content.leaf_node
         
-        #new_leaf_index = len(new_tree.leaves)
         while new_tree.nodes <= new_leaf_index:
             new_tree.extend()
         
@@ -300,38 +345,40 @@ def add_member_to_group():
         
         new_tree.update_leaf_index()
         new_tree.update_node_index()
+        timings['5_add_to_tree'] = time.perf_counter() - step_start
         
-        # 6. Derive new epoch secret
-        new_epoch_secret, new_root_secret = api_client_2.derive_epoch_secret_from_tree(new_tree, cs,final_secret)
+        # ========== STEP 6: Derive new epoch secret ==========
+        step_start = time.perf_counter()
+        new_epoch_secret, new_root_secret = api_client_2.derive_epoch_secret_from_tree(new_tree, cs, final_secret)
         new_epoch = current_epoch + 1
+        timings['6_derive_secrets'] = time.perf_counter() - step_start
         
-        # 7. Generate joiner_secret for new member
-        #import secrets
-        #joiner_secret = secrets.token_bytes(32)
-        #kp_bytes = api_client.get_latest_keypackage(new_user_id)
-        # 8. Create Welcome for new member only
+        # ========== STEP 7: Create Welcome ==========
+        step_start = time.perf_counter()
         welcome_bytes = api_client_3.create_welcome_simple(
-            group_id_b64, new_user_id, final_secret,new_kp_bytes["key_package"], token
+            group_id_b64, new_user_id, final_secret, new_kp_bytes["key_package"], token
         )
+        timings['7_create_welcome'] = time.perf_counter() - step_start
         
+        # ========== STEP 8: Store welcome and add to database ==========
+        step_start = time.perf_counter()
         if welcome_bytes:
             api_client.insert_welcome(group_id_b64, new_user_id, welcome_bytes, token)
         
-        # 9. Add new member to database
-        #new_leaf_index_in_db = len(current_members)
         api_client.add_group_member(group_id_b64, new_user_id, new_leaf_index, token)
-        
-        # 10. Update group epoch in database
         api_client.update_group_epoch(group_id_b64, new_epoch, token)
+        timings['8_db_operations'] = time.perf_counter() - step_start
         
-        # Notify all online members (including Alice) via WebSocket
-        # Get all existing members (excluding the new member)
+        # ========== STEP 9: Get updated members ==========
+        step_start = time.perf_counter()
         updated_members_response = api_client.get_group_members(group_id_b64, token)
         all_members = updated_members_response.get('members', [])
-
-        #save to local store
+        timings['9_get_members'] = time.perf_counter() - step_start
+        
+        # ========== STEP 10: Save to local store and update state ==========
+        step_start = time.perf_counter()
         save_local.save_final_secret(creator_id, group_id_b64, final_secret)
-        # 11. Update creator's group state
+        
         user_crypto_store[creator_id]['groups'][group_id_b64] = initialize_group_state_with_keys(
             group_id_b64=group_id_b64,
             tree=new_tree,
@@ -344,27 +391,14 @@ def add_member_to_group():
             final_secret=final_secret,
             root_secret=new_root_secret
         )
+        timings['10_store_state'] = time.perf_counter() - step_start
         
-        # 12. Create a Commit message for existing members (Alice) to update their state
-        # This is simplified - in real MLS, you'd create a proper Commit
-        commit_data = {
-            'type': 'group_updated',
-            'group_id': group_id_b64,
-            'new_epoch': new_epoch,
-            'new_member': {
-                'user_id': new_user_id,
-                'username': new_username,
-                'leaf_index': new_leaf_index
-            },
-            'tree_serialized': base64.b64encode(new_tree.serialize()).decode('ascii')
-        }
-        
-        # Filter out the new member (they will get a Welcome separately)
+        # ========== STEP 11: Notify other members ==========
+        step_start = time.perf_counter()
         existing_members = [m for m in all_members if m.get('user_id') != new_user_id]
         
         print(f"📢 Notifying {len(existing_members)} existing members about group update")
         
-        # Create update data for existing members
         commit_data = {
             'type': 'group_update',
             'group_id': group_id_b64,
@@ -376,37 +410,43 @@ def add_member_to_group():
             }
         }
         
-        # Debug logs to see where the notification fails
-        print(f"📢 Existing members to notify: {[m.get('user_id') for m in existing_members]}")
-        print(f"   Creator ID: {creator_id}")
-        print(f"   New member: {new_user_id}")
-
-        # Notify EACH existing member individually via FastAPI
         notify_url = f"http://localhost:8000/api/notify-group-update"
         
         for member in existing_members:
             member_id = member.get('user_id')
             if member_id == creator_id:
-                # Creator already updated, but still notify to be safe
                 pass
-            
-            try:
-                response = requests.post(notify_url, json={
-                    'user_id': member_id,
-                    'group_id': group_id_b64,
-                    'update_data': commit_data
-                }, timeout=2)
-                print(f"   Notified member {member_id}: {response.status_code}")
-            except Exception as e:
-                print(f"   Failed to notify {member_id}: {e}")
-    
+            else:
+                try:
+                    response = requests.post(notify_url, json={
+                        'user_id': member_id,
+                        'group_id': group_id_b64,
+                        'update_data': commit_data
+                    }, timeout=2)
+                    print(f"   Notified member {member_id}: {response.status_code}")
+                except Exception as e:
+                    print(f"   Failed to notify {member_id}: {e}")
+        timings['11_notify_members'] = time.perf_counter() - step_start
+        
+        total_time = time.perf_counter() - total_start
+        
+        # ========== PRINT SUMMARY ==========
+        print(f"\n{'='*50}")
+        print(f"⏱️ ADD MEMBER TO GROUP TIMINGS for {new_username}")
+        print(f"{'='*50}")
+        for key, value in timings.items():
+            print(f"   {key}: {value:.3f}s")
+        print(f"   TOTAL: {total_time:.3f}s")
+        print(f"{'='*50}\n")
 
         return jsonify({
             'success': True,
             'group_id': group_id_b64,
             'new_epoch': new_epoch,
             'new_member': new_username,
-            'message': f'Added {new_username} to group'
+            'message': f'Added {new_username} to group',
+            'timings': timings,
+            'total_time': total_time
         })
         
     except Exception as e:
@@ -469,6 +509,7 @@ def get_user_groups():
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
+        start = time.perf_counter()
         groups_data = api_client.get_my_groups(token)
         
         if 'error' in groups_data:
@@ -495,7 +536,11 @@ def get_user_groups():
                 **crypto_info,
                 'group_id_hex': group_id_hex
             })
-        
+
+        end = time.perf_counter()
+        get_groups_db_ms = (end - start) * 1000
+        print(f"⏱️ Time for getting groups from database: {get_groups_db_ms:.2f}ms")
+
         return jsonify({
             'success': True,
             'groups': enhanced_groups
@@ -616,6 +661,8 @@ def send_message():
    #print(f"✅ Group state found, epoch: {group_state.get('epoch')}")
     
     try:
+        start = time.perf_counter()
+    
         result = api_client.encrypt_and_send_message(
             group_id_b64=group_id_b64,
             message_text=message_text,
@@ -624,6 +671,9 @@ def send_message():
             group_state=group_state
         )
         
+        end = time.perf_counter()
+        elapsed_ms = (end - start) * 1000
+        print(f"⏱️ [PERFORMANCE] encrypt_and_send_message took: {elapsed_ms:.2f}ms")
        #print(f"Result from encrypt_and_send_message: {result}")
         
         if 'error' in result:
@@ -688,6 +738,7 @@ def get_messages():
     if group_id_b64 not in user_crypto_store[user_id]['groups']:
         return jsonify({'messages': []})
     
+    start = time.perf_counter()
     # ✅ NOW this exists because we use initialize_group_state_with_keys
     last_message_id = group_state.get('last_displayed_message_id')
     displayed_messages = group_state.get('displayed_messages', [])
@@ -718,17 +769,29 @@ def get_messages():
     if 'error' in result:
         return jsonify({'error': result['error']}), 400
     
+    end = time.perf_counter()
+    get_mes_db_ms = (end - start) * 1000
+    print(f"⏱️Time to Get_messages from DB took: {get_mes_db_ms:.2f}ms")
+
+    #start = time.perf_counter()
     # Decrypt only NEW messages (not already displayed)
     decrypted_messages = []
     latest_message_id = last_message_id
-    
+    elapsed_ms = 0
     for msg in result.get('messages', []):
         # ✅ Skip if already displayed
         if msg.get('message_id') in displayed_messages:
             continue
             
         try:
+            start = time.perf_counter()
+            
             decrypted = api_client.decrypt_message(msg, group_state, user_id)
+            
+            end = time.perf_counter()
+            elapsed_ms = (end - start) * 1000
+            print(f"⏱️ Time to decrypt_message took: {elapsed_ms:.2f}ms")
+
             if decrypted:
                 decrypted_messages.append(decrypted)
                 latest_message_id = msg.get('message_id')
@@ -749,7 +812,9 @@ def get_messages():
             if msg.get('message_id') and msg.get('message_id') not in displayed_messages:
                 displayed_messages.append(msg.get('message_id'))
         group_state['displayed_messages'] = displayed_messages
-    
+
+    print(f"<tool_call>Total decryption message time: {get_mes_db_ms+elapsed_ms:.2f}ms")
+
     return jsonify({
         'success': True,
         'messages': decrypted_messages
@@ -1188,7 +1253,9 @@ def update_state(user_id, group_id_b64, token=None):
     if group_state:
         final_secret = group_state.get('final_secret', bytes(32))
     else:
+        print(f"⚠️Attempting to load final_secret from local store...")
         final_secret = save_local.get_final_secret(user_id, group_id_b64)
+        print(f"🗝️ final_secret (first 8 bytes): {final_secret[:8].hex()}")
         if final_secret and isinstance(final_secret, str):
             final_secret = bytes.fromhex(final_secret) if final_secret.startswith('0x') else final_secret.encode()
     
@@ -1200,12 +1267,18 @@ def update_state(user_id, group_id_b64, token=None):
         print(f"⚠️ No token provided for user {user_id}")
         return None
     
+    start = time.perf_counter()
     # Build tree using the working replay method
     tree, current_epoch, members = api_client.build_tree_by_replay(group_id_b64, token)
     
+    end = time.perf_counter()
+    build_tree_ms = (end - start) * 1000
+    print(f"⏱️ Time for building tree: {build_tree_ms:.2f}ms")
     # Derive epoch secret
     root_secret = tree.hash(cs)
+    print(f"🫚   Derived root_secret: {root_secret[:8].hex()}...")
     epoch_secret = DeriveSecret(cs, root_secret + final_secret, b"epoch")
+    print(f"🙊   Derived epoch_secret: {epoch_secret[:8].hex()}...")
     
     # Find my leaf index
     my_leaf_index = None

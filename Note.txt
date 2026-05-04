@@ -148,3 +148,94 @@ app.js:741 📩 Fetching new messages for group: 555023349e7d216d5f498ce1d445563
 app.js:767 Failed to load messages: undefined
 
 Failed to send message: No groups found
+
+step_start = time.time()
+timings= time.time() - step_start
+print(f"🗝️✅ Fetched {len(batch_keypackages)} key packages in {timings['1_get_creator_kp']:.3f}s")
+
+
+🔐 Encrypting message using derived epoch_secret (2209bb1343fe1e30
+🗝️ Message key (first 8 bytes): 1db404b932199e3e
+🔐 Encrypting message using derived epoch_secret (2209bb1343fe1e30
+🗝️ Message key (first 8 bytes): 1db404b932199e3e
+🔐 Encrypting message using derived epoch_secret (c5548b994026ed54
+🗝️ Message key (first 8 bytes): fa6715c963484c31
+
+
+# performance_test
+performance_test.py
+load_test.py
+websocket_latency_test.py
+run_performance_tests.py
+monitoring.py
+dashboard.py
+
+test 
+
+Token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMzVlOWFjYjYtYmQzOS00ZWM1LWExYTYtY2IzMGNmZTg5YTcxIiwiZXhwIjoxNzc3ODM4MDIyfQ.xRbP-MrkPSss3rydY5JdZGcvdiGoYmqo7vsRrz1ySEc
+VM90:2 User ID: 35e9acb6-bd39-4ec5-a1a6-cb30cfe89a71
+VM90:3 Username: alice
+Group ID (hex): ae214897af81bf7ec1c58900dae0c828
+VM639:2 Group ID (b64): riFIl6+Bv37BxYkA2uDIKA==
+
+# Run with arguments
+python run_performance_tests.py "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMzVlOWFjYjYtYmQzOS00ZWM1LWExYTYtY2IzMGNmZTg5YTcxIiwiZXhwIjoxNzc3ODM2NzA2fQ.W7VNNX0gY-ZWl0KMG8hZ4Bp6DFrO7zrCDCXGv9tFgK8" "35e9acb6-bd39-4ec5-a1a6-cb30cfe89a71" "ae214897af81bf7ec1c58900dae0c828" "riFIl6+Bv37BxYkA2uDIKA=="
+python standalone_performance_test.py "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMzVlOWFjYjYtYmQzOS00ZWM1LWExYTYtY2IzMGNmZTg5YTcxIiwiZXhwIjoxNzc3ODM4MDIyfQ.xRbP-MrkPSss3rydY5JdZGcvdiGoYmqo7vsRrz1ySEc" "35e9acb6-bd39-4ec5-a1a6-cb30cfe89a71" "ae214897af81bf7ec1c58900dae0c828" "riFIl6+Bv37BxYkA2uDIKA=="
+
+
+
+performance_timers.py
+
+end = time.perf_counter()
+msg_enc_ms = (end - start) * 1000
+print(f"⏱️ Time for encrypting message: {msg_enc_ms:.2f}ms")
+start = time.perf_counter()
+/qvhaqmpw0H3y/1TBbNXdQ==,6ebff36e98797906190d0c32dd7f30c378b75954ad28cf2d326ffbdcfe17e297
+/qvhaqmpw0H3y/1TBbNXdQ==,6ebff36e98797906190d0c32dd7f30c378b75954ad28cf2d326ffbdcfe17e297
+⚠️Attempting to load final_secret from local store...
+print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
+🗝️ final_secret (first 8 bytes): 6ebff36e98797906
+🫚   Derived root_secret: eb8d7e73219ec4a0...
+🙊   Derived epoch_secret: bc3a2839c7ae726f...
+
+🫚   Derived root_secret: 104eac6aeffe7802...
+🙊   Derived epoch_secret: 541c7b1020eee486...
+🔄 Updating group state for user 9c6b3b27-aee7-40a7-ad1f-a8b29d2a089b
+⚠️Attempting to load final_secret from local store...
+🗝️ final_secret (first 8 bytes): 6ebff36e98797906
+
+🌲 Building tree by replay for group /qvhaqmpw0H3y/1TBbNXdQ==
+127.0.0.1 - - [04/May/2026 02:46:39] "GET /api/welcomes/pending HTTP/1.1" 200 -
+   Found 2 members in database
+      Leaf 0: bob
+      Leaf 1: alice
+⏱️ Time for getting groups from database: 2038.97ms
+127.0.0.1 - - [04/May/2026 02:46:41] "GET /api/groups HTTP/1.1" 200 -
+   Created empty tree with 1 leaves
+   Replaying addition of alice at leaf 1
+      Tree now has 2 leaves, epoch 1
+   Final tree: 2 leaves, 3 nodes
+   Current epoch: 1
+🫚   Derived root_secret: 104eac6aeffe7802...
+🙊   Derived epoch_secret: 541c7b1020eee486...
+🫚   Derived root_secret: 2f2d9e2be10847b5...
+🙊   Derived epoch_secret: dcd97402cbab3a11...
+      Derived root_secret: 95439d76110924d7...
+🙊   Derived epoch_secret: 45bb9d0fe9a2767b...
+🫚   Derived root_secret: 92330bc59a4558a4...
+🙊   Derived epoch_secret: 0471ec479a21caec...
+🫚   Derived root_secret: 0a4aefe4fe01f12c...
+🙊   Derived epoch_secret: 95a75900842337b1...
+
+🌲 Building tree by replay for group /qvhaqmpw0H3y/1TBbNXdQ==
+   Found 2 members in database
+      Leaf 0: bob
+      Leaf 1: alice
+   Creator is bob (user_id: 9c6b3b27-aee7-40a7-ad1f-a8b29d2a089b)
+   tree: 4c8931f71688820c...
+   Created empty tree with 1 leaves
+   Replaying addition of alice at leaf 1
+      Tree now has 2 leaves, epoch 1
+   Final tree: 2 leaves, 3 nodes
+   Current epoch: 1
+   

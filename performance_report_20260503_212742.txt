@@ -1,0 +1,30 @@
+MLS PERFORMANCE TEST REPORT
+==================================================
+
+{
+  "encrypt_send": {
+    "error": "No successful requests",
+    "success_rate": 0
+  },
+  "get_messages": {
+    "error": "No successful requests"
+  },
+  "fastapi_messages": {
+    "mean": 2046.730969985947,
+    "median": 2046.9638999784365,
+    "min": 2023.891199962236,
+    "max": 2062.688000034541,
+    "stddev": 11.836701563138154,
+    "success_rate": 100.0
+  },
+  "load_test": {
+    "error": "No successful requests"
+  },
+  "websocket": {
+    "avg_latency": 0.611610000487417,
+    "min_latency": 0.49409992061555386,
+    "max_latency": 0.7584000704810023,
+    "stddev": 0.08159652796202713,
+    "iterations": 10
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "encrypt_send": {
+    "error": "No successful requests",
+    "success_rate": 0
+  },
+  "get_messages": {
+    "error": "No successful requests"
+  },
+  "fastapi_messages": {
+    "mean": 2052.4189199786633,
+    "median": 2045.6992999534123,
+    "min": 2033.300400013104,
+    "max": 2120.5943999812007,
+    "stddev": 25.24146414627273,
+    "success_rate": 100.0
+  },
+  "load_test": {
+    "error": "No successful requests"
+  },
+  "websocket": {
+    "avg_latency": 0.7252499926835299,
+    "min_latency": 0.5223999032750726,
+    "max_latency": 1.4816999901086092,
+    "stddev": 0.36496547213163405,
+    "iterations": 10
+  }
+}

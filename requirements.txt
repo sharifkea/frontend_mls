@@ -13,4 +13,7 @@ pyhpke
 flask-socketio 
 eventlet
 python-socketio 
-asyncio
+websockets
+flask_debugtoolbar
+plotly
+psutil websockets matplotlib plotly 

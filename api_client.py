@@ -540,6 +540,8 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         print(f"🔐 ENCRYPTING MESSAGE - User: {user_id[:8]}...")
         print(f"{'='*60}")
         
+        start = time.perf_counter()
+        
         # Get tree from group_state
         tree = group_state.get('tree')
         if tree is None:
@@ -559,6 +561,8 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         print(f"   🌲 Leaves count: {len(tree.leaves)}")
         print(f"   🌲 Nodes count: {tree.nodes}")
         
+        
+        
         # Verify leaf indices
         for i, leaf in enumerate(tree.leaves):
             if isinstance(leaf, LeafNode):
@@ -567,6 +571,10 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
                 else:
                     print(f"   🌿 Leaf {i}: NO _leaf_index!")
         
+        end = time.perf_counter()
+        leaf_inf_ms = (end - start) * 1000
+        print(f"⏱️ Time for getting sender leaf information from the tree: {leaf_inf_ms:.2f}ms")
+        start = time.perf_counter()
         # Derive epoch secret
         #epoch_secret = api_client_2.derive_epoch_secret_from_tree(tree, group_state['cipher_suite'])
         epoch_secret = group_state.get('epoch_secret')
@@ -597,6 +605,11 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         aead = AESGCM(message_key)
         ciphertext = aead.encrypt(nonce, content_bytes, b"")
         
+        end = time.perf_counter()
+        msg_enc_ms = (end - start) * 1000
+        print(f"⏱️ Time for encrypting message: {msg_enc_ms:.2f}ms")
+        start = time.perf_counter()
+
         # 6. Store ONLY the ciphertext and nonce (NOT wrapped in MLSMessage!)
         payload = {
             "group_id": group_id_b64,
@@ -617,6 +630,10 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         )
         
         if response.status_code == 200:
+            end = time.perf_counter()
+            save_db_ms = (end - start) * 1000
+            print(f"⏱️ Time for saving message to database: {save_db_ms:.2f}ms")
+            start = time.perf_counter()
             #print(f"✅ Message sent successfully")
             return {"success": True, "message": "Message sent"}
         else:
@@ -694,6 +711,8 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     
     # 2. Get creator's leaf node to initialize tree
     creator_id = members[0]['user_id']
+    
+    print(f"   Creator is {members[0]['username']} (user_id: {creator_id})")    
     creator_kp_bytes = get_latest_keypackage(creator_id)
     if not creator_kp_bytes:
         raise ValueError("Creator key package not found")
@@ -704,6 +723,7 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     # 3. Create empty group using the working method
     temp_group = create_empty_group(creator_leaf, "temp")
     tree = temp_group['tree']
+    print(f"   tree: {tree.hash(cs).hex()[:16]}...")
     epoch = 0
     
     print(f"   Created empty tree with {len(tree.leaves)} leaves")
@@ -754,6 +774,23 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     print(f"   Final tree: {len(tree.leaves)} leaves, {tree.nodes} nodes")
     print(f"   Current epoch: {current_epoch}")
     
+    print(f"\n🔍 TREE VERIFICATION:")
+    print(f"   Number of leaves: {len(tree.leaves)}")
+    print(f"   Tree nodes: {tree.nodes}")
+    for i, leaf in enumerate(tree.leaves):
+        if isinstance(leaf, LeafNode) and leaf.value:
+            pub_key = bytes(leaf.value.encryption_key.data)[:16].hex()
+            print(f"   Leaf {i}: _leaf_index={leaf._leaf_index}, pub_key={pub_key}...")
+        else:
+            print(f"   Leaf {i}: {leaf}")
+
+    # Also log the raw tree hash calculation
+    raw_hash = tree.hash(cs)
+    print(f"   Raw tree hash: {raw_hash[:32].hex()}...")
+
+    # Verify this matches what you'll use
+    root_secret = raw_hash
+    print(f"   Root secret: {root_secret[:16].hex()}...")
     return tree, current_epoch, members
 
 def get_batch_latest_keypackages(user_ids: List[str], token: str = None) -> dict:

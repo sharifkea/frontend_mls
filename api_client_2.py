@@ -87,29 +87,44 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
     Create a Commit + Welcome to add a new member to the group.
     Returns the Welcome bytes and updated group.
     """
+    import time
+    timings = {}
+    total_start = time.time()
+    
     print(f"\n=== Adding {new_member_id} to group ===\n")
 
     # Ensure group_id_b64 exists
+    step_start = time.time()
     if 'group_id_b64' not in group and 'group_id' in group:
         group_id_bytes = group['group_id'].data
         group['group_id_b64'] = base64.b64encode(group_id_bytes).decode('ascii')
+    timings['1_ensure_group_id'] = time.time() - step_start
 
     # 1. Fetch new member's KeyPackage
+    step_start = time.time()
     new_kp_bytes = api_client.get_latest_keypackage(new_member_id)
     if not new_kp_bytes:
         print("Cannot add - KeyPackage not found")
         return None, group
+    timings['2_fetch_keypackage'] = time.time() - step_start
 
+    step_start = time.time()
     new_kp = KeyPackage.deserialize(bytearray(new_kp_bytes))
     new_leaf = new_kp.content.leaf_node
+    timings['3_deserialize_keypackage'] = time.time() - step_start
 
     # 2. Create Add proposal
+    step_start = time.time()
     add_proposal = Add(key_package=new_kp)
+    timings['4_create_add_proposal'] = time.time() - step_start
 
     # 3. Create Commit
+    step_start = time.time()
     commit = Commit(proposals=[add_proposal], path=None)
+    timings['5_create_commit'] = time.time() - step_start
 
     # 4. Build FramedContent + AuthenticatedContent
+    step_start = time.time()
     sender = Sender(sender_type=SenderType.member, leaf_index=committer_index)
     framed_content = FramedContent(
         group_id=group["group_id"],
@@ -126,20 +141,26 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
         content=framed_content,
         auth=auth
     )
+    timings['6_build_framed_content'] = time.time() - step_start
 
     # 5. Sign the commit
+    step_start = time.time()
     tbs = authenticated_content.FramedContentTBS(group["group_context"])
     sign_content = SignContent(b"FramedContentTBS", tbs.serialize())
     signature_bytes = SignWithLabel(cs, sign_content, committer_priv_bytes)
     authenticated_content.auth.signature = VLBytes(signature_bytes)
+    timings['7_sign_commit'] = time.time() - step_start
 
     # 6. Create MLS PublicMessage (the Commit)
+    step_start = time.time()
     public_commit = MLSMessage(
         wire_format=WireFormat.MLS_PUBLIC_MESSAGE,
         msg_content=authenticated_content
     )
+    timings['8_create_public_commit'] = time.time() - step_start
 
     # 7. Add new leaf to the tree
+    step_start = time.time()
     tree: RatchetTree = group["tree"]
     new_leaf_index = len(tree.leaves)
 
@@ -149,7 +170,6 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
     tree[new_leaf_index] = new_leaf
 
     # Add the new leaf
-    #tree[new_leaf_index] = new_leaf
     tree[new_leaf_index]._leaf_index = new_leaf_index
     
     # Update indices
@@ -163,8 +183,10 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
     
     tree.update_leaf_index()
     tree.update_node_index()
+    timings['9_add_leaf_to_tree'] = time.time() - step_start
 
     # 8. Derive new secrets for the NEXT epoch
+    step_start = time.time()
     old_init_secret = group.get("init_secret")
     commit_secret = bytes(32)
 
@@ -173,8 +195,10 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
 
     new_epoch_secret = group["group_context"].extract_epoch_secret(joiner_secret, psk_secret)
     new_init_secret = DeriveSecret(cs, new_epoch_secret, b"init")
+    timings['10_derive_secrets'] = time.time() - step_start
 
     # 9. Create NEW GroupContext for the NEXT epoch
+    step_start = time.time()
     new_group_context = GroupContext(
         cipher_suite=group["group_context"].cipher_suite,
         group_id=group["group_context"].group_id,
@@ -183,14 +207,18 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
         confirmed_transcript_hash=group["group_context"].confirmed_transcript_hash,
         extensions=group["group_context"].extensions
     )
+    timings['11_create_group_context'] = time.time() - step_start
 
     # 10. Create ratchet_tree extension with the COMPLETE tree
+    step_start = time.time()
     ratchet_tree_extension = Extension(
         extension_type=ExtensionType.ratchet_tree,
         extension_data=VLBytes(tree.serialize())
     )
+    timings['12_create_ratchet_extension'] = time.time() - step_start
 
     # 11. Build GroupInfo with NEW group context
+    step_start = time.time()
     confirmed_data = b"confirmation" + authenticated_content.serialize()
     confirmation_tag = hashlib.sha256(confirmed_data).digest()
 
@@ -201,16 +229,20 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
         signature=VLBytes(b""),
         extensions=[ratchet_tree_extension]
     )
+    timings['13_build_group_info'] = time.time() - step_start
 
-    # 12. Prepare GroupSecrets for the new member (send joiner_secret and epoch_secret)
+    # 12. Prepare GroupSecrets for the new member
+    step_start = time.time()
     group_secrets = GroupSecrets(
         joiner_secret=VLBytes(joiner_secret),
         psks=[],
         path_secret=None
     )
     group_secrets_bytes = group_secrets.serialize()
+    timings['14_prepare_group_secrets'] = time.time() - step_start
 
     # 13. HPKE encrypt GroupSecrets to new member's init key
+    step_start = time.time()
     init_pub = cryptography.hazmat.primitives.asymmetric.x25519.X25519PublicKey.from_public_bytes(
         bytes(new_kp.content.init_key.data)
     )
@@ -228,8 +260,10 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
             ciphertext=VLBytes(ciphertext)
         )
     )
+    timings['15_hpke_encrypt'] = time.time() - step_start
 
     # 14. Encrypt GroupInfo using welcome_secret
+    step_start = time.time()
     welcome_secret = ExtractWelcomeSecret(cs, joiner_secret, psk_secret)
 
     AEAD_KEY_SIZE = 16
@@ -247,8 +281,10 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
         data=group_info.serialize(),
         associated_data=b""
     )
+    timings['16_encrypt_group_info'] = time.time() - step_start
 
     # 15. Build final Welcome
+    step_start = time.time()
     welcome = Welcome(
         cipher_suite=cs,
         secrets=[encrypted_group_secrets],
@@ -260,8 +296,10 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
         msg_content=welcome
     )
     welcome_bytes = welcome_message.serialize()
+    timings['17_build_welcome'] = time.time() - step_start
 
     # 16. Prepare updated group state
+    step_start = time.time()
     updated_group = {
         "group_id": group["group_id"],
         "group_id_b64": group.get("group_id_b64"),
@@ -274,6 +312,18 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
     }
 
     group.update(updated_group)
+    timings['18_update_group_state'] = time.time() - step_start
+
+    total_time = time.time() - total_start
+    
+    # Print summary
+    print(f"\n{'='*50}")
+    print(f"⏱️ ADD MEMBER TIMINGS for {new_member_id}")
+    print(f"{'='*50}")
+    for key, value in timings.items():
+        print(f"   {key}: {value:.3f}s")
+    print(f"   TOTAL: {total_time:.3f}s")
+    print(f"{'='*50}\n")
 
     print(f"✅ Welcome created successfully")
     print(f"   New epoch: {updated_group['epoch']}, New leaf index: {new_leaf_index}")
