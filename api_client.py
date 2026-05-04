@@ -692,9 +692,13 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     
     Returns: (tree, current_epoch, members_info)
     """
+    timings = {}
+    total_start = time.time()
+
     print(f"\n🌲 Building tree by replay for group {group_id_b64}")
     
     # 1. Get all members from database (sorted by leaf_index)
+    step_start = time.time()
     members_response = get_group_members(group_id_b64, token)
     if 'error' in members_response:
         raise ValueError(f"Failed to get members: {members_response['error']}")
@@ -709,26 +713,46 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     for m in members:
         print(f"      Leaf {m['leaf_index']}: {m['username']}")
     
+    timings['1_get_group_members_db'] = time.time() - step_start
+    print(f"⏱️ Fetched all members from database in {timings['1_get_group_members_db']:.3f}s")
+
+    # 1.2. Fetch all key packages in a single batch
+    step_start = time.time()
+    all_members_ids = [member['user_id'] for member in members]  # In case you want to fetch for multiple groups in the future
+    batch_keypackages = get_batch_latest_keypackages(all_members_ids, token)
+
+    timings['2_get_batch_keypackages'] = time.time() - step_start
+    print(f"⏱️ Fetched all key packages in {timings['2_get_batch_keypackages']:.3f}s")
+
     # 2. Get creator's leaf node to initialize tree
+    step_start = time.time()
     creator_id = members[0]['user_id']
-    
-    print(f"   Creator is {members[0]['username']} (user_id: {creator_id})")    
-    creator_kp_bytes = get_latest_keypackage(creator_id)
+    print(f"   Creator is {members[0]['username']} (user_id: {creator_id})") 
+    creator_kp_bytes = batch_keypackages.get(creator_id)   
+    #creator_kp_bytes = get_latest_keypackage(creator_id)
     if not creator_kp_bytes:
         raise ValueError("Creator key package not found")
     
-    creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes))
+    creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes["key_package"]))
     creator_leaf = creator_kp.content.leaf_node
     
+    timings['3_get_creator_kp'] = time.time() - step_start
+    print(f"⏱️ Taking creator's key package and leaf node in {timings['3_get_creator_kp']:.3f}s")
+    
     # 3. Create empty group using the working method
+    step_start = time.time()
     temp_group = create_empty_group(creator_leaf, "temp")
     tree = temp_group['tree']
     print(f"   tree: {tree.hash(cs).hex()[:16]}...")
     epoch = 0
     
     print(f"   Created empty tree with {len(tree.leaves)} leaves")
-    
+
+    timings['4_create_empty_group'] = time.time() - step_start
+    print(f"⏱️ Created empty tree in {timings['4_create_empty_group']:.3f}s")
+
     # 4. Replay all member additions (except creator)
+    step_start = time.time()
     for member in members[1:]:  # Skip creator (leaf 0)
         member_id = member.get('user_id')
         member_name = member.get('username')
@@ -737,12 +761,12 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
         print(f"   Replaying addition of {member_name} at leaf {leaf_index}")
         
         # Fetch member's KeyPackage
-        member_kp_bytes = get_latest_keypackage(member_id)
+        member_kp_bytes = batch_keypackages.get(member_id)
         if not member_kp_bytes:
             print(f"   ⚠️ No KeyPackage for {member_name}, skipping")
             continue
         
-        member_kp = KeyPackage.deserialize(bytearray(member_kp_bytes))
+        member_kp = KeyPackage.deserialize(bytearray(member_kp_bytes["key_package"]))
         member_leaf = member_kp.content.leaf_node
         
         # Add leaf to tree (simulate add_member without Welcome)
@@ -767,10 +791,17 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
         epoch += 1
         print(f"      Tree now has {len(tree.leaves)} leaves, epoch {epoch}")
     
+    timings['5_tree_member_additions'] = time.time() - step_start
+    print(f"⏱️ Member additions to the tree in {timings['5_tree_member_additions']:.3f}s")
+
     # 5. Get current epoch from group details
-    group_details = get_group_details(group_id_b64, token)
-    current_epoch = group_details.get('last_epoch', epoch)
-    
+    step_start = time.time()
+    #group_details = get_group_details(group_id_b64, token)
+    #print(f"   Group details fetched for epoch: {group_details.get('last_epoch')}")
+    print(f"   User  generated Epoch: {epoch}")
+    #current_epoch = group_details.get('last_epoch', epoch)
+    current_epoch = epoch  # Use the epoch we calculated from member additions
+
     print(f"   Final tree: {len(tree.leaves)} leaves, {tree.nodes} nodes")
     print(f"   Current epoch: {current_epoch}")
     
@@ -791,6 +822,24 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     # Verify this matches what you'll use
     root_secret = raw_hash
     print(f"   Root secret: {root_secret[:16].hex()}...")
+
+    timings['6_tree_verification'] = time.time() - step_start
+    print(f"⏱️ Tree verification in {timings['6_tree_verification']:.3f}s")
+
+    total_time = time.time() - total_start
+    
+    # ========== PRINT SUMMARY ==========
+    print(f"\n{'='*50}")
+    print(f"⏱️ TREE FOR UPDATE STATE TOTAL TIME: {total_time:.3f}s for {len(members)} members")
+    print(f"{'='*50}")
+    print("📊 DETAILED TIMINGS:")
+    for key, value in timings.items():
+        print(f"   {key}: {value:.3f}s")
+    
+    # Compare with previous runs
+        
+    print(f"{'='*50}\n")
+
     return tree, current_epoch, members
 
 def get_batch_latest_keypackages(user_ids: List[str], token: str = None) -> dict:
@@ -867,3 +916,21 @@ def insert_welcome_batch(group_id_b64: str, welcomes: List[dict], token: str) ->
         print(f"❌ Batch store welcomes failed: {e}")
         return False
 
+def notify_group_update_batch(group_id_b64: str, user_ids: List[str], update_data: dict, token: str) -> dict:
+    """Notify multiple members about group update in one request"""
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/notify-group-update-batch",
+            json={
+                "user_ids": user_ids,
+                "group_id": group_id_b64,
+                "update_data": update_data
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"❌ Batch notification failed: {e}")
+        return {"status": "error", "error": str(e)}

@@ -296,14 +296,20 @@ def add_member_to_group():
         # 2. Get all current members from database
         current_members = group_state.get('members_list', [])
         timings['1_get_group_state'] = time.perf_counter() - step_start
+        current_members_ids = [m.get('user_id') for m in current_members if m.get('user_id') != creator_id]
+
         
         # ========== STEP 2: Check if new user is already a member ==========
         step_start = time.perf_counter()
         if any(m.get('user_id') == new_user_id for m in current_members):
             return jsonify({'error': 'User already in group'}), 400
         else:
-            all_group_ids = [m.get('user_id') for m in current_members] + [new_user_id]
+            all_group_ids = current_members_ids + [new_user_id]
             print(f"✅ User {new_user_id} is not currently a member, proceeding to add")
+        if any(m.get('user_id') == creator_id for m in current_members):
+            all_group_ids.append(creator_id)  # Ensure creator is included for batch key package fetch
+            print(f"✅ Including creator {creator_id} in batch key package fetch")
+        
         timings['2_check_membership'] = time.perf_counter() - step_start
         
         # ========== STEP 3: Get batch key packages ==========
@@ -394,10 +400,13 @@ def add_member_to_group():
         timings['10_store_state'] = time.perf_counter() - step_start
         
         # ========== STEP 11: Notify other members ==========
-        step_start = time.perf_counter()
-        existing_members = [m for m in all_members if m.get('user_id') != new_user_id]
+        step_start = time.time()
+    
+        #existing_members = [m for m in all_members if m.get('user_id') != new_user_id and m.get('user_id') != creator_id]
         
-        print(f"📢 Notifying {len(existing_members)} existing members about group update")
+        
+            
+        print(f"📢 Batch notifying {len(current_members_ids)} existing members about group update")
         
         commit_data = {
             'type': 'group_update',
@@ -410,23 +419,18 @@ def add_member_to_group():
             }
         }
         
-        notify_url = f"http://localhost:8000/api/notify-group-update"
+        # ✅ SINGLE BATCH CALL instead of loop
+        result = api_client.notify_group_update_batch(
+            group_id_b64, 
+            current_members_ids, 
+            commit_data, 
+            token
+        )
         
-        for member in existing_members:
-            member_id = member.get('user_id')
-            if member_id == creator_id:
-                pass
-            else:
-                try:
-                    response = requests.post(notify_url, json={
-                        'user_id': member_id,
-                        'group_id': group_id_b64,
-                        'update_data': commit_data
-                    }, timeout=2)
-                    print(f"   Notified member {member_id}: {response.status_code}")
-                except Exception as e:
-                    print(f"   Failed to notify {member_id}: {e}")
-        timings['11_notify_members'] = time.perf_counter() - step_start
+        print(f"   Batch notification result: {result}")
+        
+        
+        timings['11_notify_members'] = time.time() - step_start
         
         total_time = time.perf_counter() - total_start
         
@@ -1136,11 +1140,7 @@ def create_group_with_online():
         print(f"   {key}: {value:.3f}s")
     
     # Compare with previous runs
-    expected_old_time = 12.219 * len(online_users) / 2  # Rough estimate
-    if total_time < expected_old_time:
-        saved = expected_old_time - total_time
-        print(f"\n🎉 SAVED: ~{saved:.1f}s ({(saved/expected_old_time)*100:.0f}% faster)")
-    
+        
     print(f"{'='*50}\n")
     
     return jsonify({
