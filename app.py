@@ -149,6 +149,7 @@ def login():
         print(f"⏱️ Time for notifying group creators: {not_gro_cre_ms:.2f}ms")
         total_login_time += not_gro_cre_ms
         start = time.perf_counter()
+
         # 2. Generate FRESH key package for this session
         #print(f"Generating fresh key package for {username}...")
         private_key, init_priv, key_package_bytes = create_keypakage.GeneratKeyPackage(username)
@@ -403,8 +404,6 @@ def add_member_to_group():
         step_start = time.time()
     
         #existing_members = [m for m in all_members if m.get('user_id') != new_user_id and m.get('user_id') != creator_id]
-        
-        
             
         print(f"📢 Batch notifying {len(current_members_ids)} existing members about group update")
         
@@ -428,7 +427,6 @@ def add_member_to_group():
         )
         
         print(f"   Batch notification result: {result}")
-        
         
         timings['11_notify_members'] = time.time() - step_start
         
@@ -700,7 +698,7 @@ def get_messages():
     
     user_id = session.get('user_id')
     token = session.get('token')
-    
+    username = session.get('username')
     if not user_id or not token:
         return jsonify({'error': 'Not authenticated'}), 401
     
@@ -729,6 +727,40 @@ def get_messages():
         if new_group_state:
             user_crypto_store[user_id]['groups'][group_id_b64] = new_group_state
             group_state = new_group_state
+            
+            # ========== Notify other members ==========
+            step_start = time.time()
+            currenrt_members = group_state.get('members_list', [])
+            current_members_ids = [m.get('user_id') for m in currenrt_members if m.get('user_id') != user_id]
+            new_epoch = group_state.get('epoch', 0)
+            new_leaf_index = group_state.get('leaf_index', 0)
+                
+            print(f"📢 Batch notifying {len(current_members_ids)} existing members for group update")
+            
+            commit_data = {
+                'type': 'group_update',
+                'group_id': group_id_b64,
+                'new_epoch': new_epoch,
+                'new_member': {
+                    'user_id': user_id,
+                    'username': username,
+                    'leaf_index': new_leaf_index
+                }
+            }
+            
+            # ✅ SINGLE BATCH CALL instead of loop
+            result = api_client.notify_group_update_batch(
+                group_id_b64, 
+                current_members_ids, 
+                commit_data, 
+                token
+            )
+            
+            print(f"   Batch notification result: {result}")
+            
+            timings = time.time() - step_start
+            print(f"⏱️ Time for notifying other members after rejoining the group: {timings:.2f}s")
+
         else:
             return jsonify({'error': 'Could not restore group state'}), 400
         
