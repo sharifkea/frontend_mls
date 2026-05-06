@@ -355,9 +355,9 @@ def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite, 
         if isinstance(leaf, LeafNode):
             if not hasattr(leaf, '_leaf_index') or leaf._leaf_index is None:
                 leaf._leaf_index = i
-                print(f"   Fixed leaf {i}: set _leaf_index = {leaf._leaf_index}")
-            else:
-                print(f"   Leaf {i}: _leaf_index = {leaf._leaf_index}")
+                #print(f"   Fixed leaf {i}: set _leaf_index = {leaf._leaf_index}")
+            #else:
+                #print(f"   Leaf {i}: _leaf_index = {leaf._leaf_index}")
     
     # Also ensure node indices
     for i in range(tree.nodes):

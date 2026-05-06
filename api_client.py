@@ -2,6 +2,7 @@
 import cryptography, base64, requests, sys, secrets, hashlib, time
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import api_client_2
+import api_client_3
 from cryp_hpke import simple_hpke_seal, simple_hpke_open
 from flask import session
 from app import user_crypto_store
@@ -300,7 +301,7 @@ def update_group_epoch(group_id: str, new_epoch: int, token: str):
     import base64
     import requests
 
-    print(f"\n=== Updating group {group_id} to epoch {new_epoch} ===")
+    #print(f"\n=== Updating group {group_id} to epoch {new_epoch} ===")
     
     # Convert base64 to hex for URL
     group_id_bytes = base64.b64decode(group_id)
@@ -314,8 +315,8 @@ def update_group_epoch(group_id: str, new_epoch: int, token: str):
     try:
         r = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
         r.raise_for_status()
-        print("SUCCESS: Group epoch updated")
-        print("Response:", r.json())
+        #print("SUCCESS: Group epoch updated")
+        #print("Response:", r.json())
         return True
     except Exception as e:
         print(f"FAILED: {str(e)}")
@@ -536,9 +537,9 @@ def mark_welcome_delivered(welcome_id: str, token: str):
 
 def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, user_id: str, group_state: dict):
     try:
-        print(f"\n{'='*60}")
-        print(f"🔐 ENCRYPTING MESSAGE - User: {user_id[:8]}...")
-        print(f"{'='*60}")
+        #print(f"\n{'='*60}")
+        #print(f"🔐 ENCRYPTING MESSAGE - User: {user_id[:8]}...")
+        #print(f"{'='*60}")
         
         start = time.perf_counter()
         
@@ -550,26 +551,26 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
             if tree_b64:
                 tree_bytes = base64.b64decode(tree_b64)
                 tree = RatchetTree.deserialize(bytearray(tree_bytes))
-                print(f"   Restored tree from serialized ({len(tree.leaves)} leaves)")
+                #print(f"   Restored tree from serialized ({len(tree.leaves)} leaves)")
                 group_state['tree'] = tree
             else:
                 return {"error": "No tree in group_state"}
         
         # Print tree details for this user
         tree_hash = api_client_2.get_tree_hash(tree, group_state['cipher_suite'])
-        print(f"   🌲 Tree hash: {tree_hash[:16]}...")
-        print(f"   🌲 Leaves count: {len(tree.leaves)}")
-        print(f"   🌲 Nodes count: {tree.nodes}")
+        #print(f"   🌲 Tree hash: {tree_hash[:16]}...")
+        #print(f"   🌲 Leaves count: {len(tree.leaves)}")
+        #print(f"   🌲 Nodes count: {tree.nodes}")
         
         
         
         # Verify leaf indices
-        for i, leaf in enumerate(tree.leaves):
-            if isinstance(leaf, LeafNode):
-                if hasattr(leaf, '_leaf_index'):
-                    print(f"   🌿 Leaf {i}: index={leaf._leaf_index}")
-                else:
-                    print(f"   🌿 Leaf {i}: NO _leaf_index!")
+        #for i, leaf in enumerate(tree.leaves):
+            #if isinstance(leaf, LeafNode):
+                #if hasattr(leaf, '_leaf_index'):
+                    #print(f"   🌿 Leaf {i}: index={leaf._leaf_index}")
+                #else:
+                    #print(f"   🌿 Leaf {i}: NO _leaf_index!")
         
         end = time.perf_counter()
         leaf_inf_ms = (end - start) * 1000
@@ -583,10 +584,10 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         cipher_suite = group_state['cipher_suite']
         group_id_bytes = base64.b64decode(group_id_b64)
         
-        print(f"   Epoch: {epoch}")
-        print(f"   My leaf index: {my_leaf_index}")
-        print(f"   Message: {message_text[:50]}...")
-        print(f"🔐 Encrypting message using derived epoch_secret ({epoch_secret[:8].hex()}")
+        #print(f"   Epoch: {epoch}")
+        #print(f"   My leaf index: {my_leaf_index}")
+        #print(f"   Message: {message_text[:50]}...")
+        #print(f"🔐 Encrypting message using derived epoch_secret ({epoch_secret[:8].hex()}")
 
         sender = Sender(sender_type=SenderType.member, leaf_index=my_leaf_index)
         
@@ -600,7 +601,7 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         )
         content_bytes = framed_content.serialize()
         message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
-        print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
+        #print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
         nonce = secrets.token_bytes(12)
         aead = AESGCM(message_key)
         ciphertext = aead.encrypt(nonce, content_bytes, b"")
@@ -634,6 +635,7 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
             save_db_ms = (end - start) * 1000
             print(f"⏱️ Time for saving message to database: {save_db_ms:.2f}ms")
             start = time.perf_counter()
+            print(f"⏱️Total time for encrypting and sending message: {leaf_inf_ms + msg_enc_ms + save_db_ms:.2f}ms")
             #print(f"✅ Message sent successfully")
             return {"success": True, "message": "Message sent"}
         else:
@@ -652,10 +654,10 @@ def decrypt_message(msg_data: dict, group_state: dict, user_id: str):
         cipher_suite = group_state['cipher_suite']
         epoch = msg_data.get('epoch', group_state.get('epoch', 0))
 
-        print(f"Decrypting message - epoch {epoch}, sender: {msg_data.get('sender_username')}")
+        #print(f"Decrypting message - epoch {epoch}, sender: {msg_data.get('sender_username')}")
 
         message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
-        print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
+        #print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
 
         ciphertext = base64.b64decode(msg_data['ciphertext'])
         nonce = base64.b64decode(msg_data['nonce'])
@@ -688,15 +690,11 @@ def decrypt_message(msg_data: dict, group_state: dict, user_id: str):
 def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, int, dict]:
     """
     Build the ratchet tree by replaying all member additions in order.
-    This matches the working method from process_welcome.
-    
-    Returns: (tree, current_epoch, members_info)
+    OPTIMIZED: Only updates indices once at the end.
     """
     timings = {}
     total_start = time.time()
 
-    print(f"\n🌲 Building tree by replay for group {group_id_b64}")
-    
     # 1. Get all members from database (sorted by leaf_index)
     step_start = time.time()
     members_response = get_group_members(group_id_b64, token)
@@ -708,136 +706,82 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
         raise ValueError("No members found in group")
     
     members.sort(key=lambda m: m['leaf_index'])
-    
-    print(f"   Found {len(members)} members in database")
-    for m in members:
-        print(f"      Leaf {m['leaf_index']}: {m['username']}")
-    
     timings['1_get_group_members_db'] = time.time() - step_start
     print(f"⏱️ Fetched all members from database in {timings['1_get_group_members_db']:.3f}s")
 
-    # 1.2. Fetch all key packages in a single batch
+    # 2. Fetch all key packages in a single batch
     step_start = time.time()
-    all_members_ids = [member['user_id'] for member in members]  # In case you want to fetch for multiple groups in the future
+    all_members_ids = [member['user_id'] for member in members]
     batch_keypackages = get_batch_latest_keypackages(all_members_ids, token)
-
     timings['2_get_batch_keypackages'] = time.time() - step_start
     print(f"⏱️ Fetched all key packages in {timings['2_get_batch_keypackages']:.3f}s")
 
-    # 2. Get creator's leaf node to initialize tree
+    # 3. Get creator's leaf node
     step_start = time.time()
     creator_id = members[0]['user_id']
-    print(f"   Creator is {members[0]['username']} (user_id: {creator_id})") 
-    creator_kp_bytes = batch_keypackages.get(creator_id)   
-    #creator_kp_bytes = get_latest_keypackage(creator_id)
+    creator_kp_bytes = batch_keypackages.get(creator_id)
     if not creator_kp_bytes:
         raise ValueError("Creator key package not found")
     
     creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes["key_package"]))
     creator_leaf = creator_kp.content.leaf_node
-    
     timings['3_get_creator_kp'] = time.time() - step_start
-    print(f"⏱️ Taking creator's key package and leaf node in {timings['3_get_creator_kp']:.3f}s")
-    
-    # 3. Create empty group using the working method
+    print(f"⏱️ Taking creator's key package in {timings['3_get_creator_kp']:.3f}s")
+
+    # 4. Create empty tree
     step_start = time.time()
     temp_group = create_empty_group(creator_leaf, "temp")
     tree = temp_group['tree']
-    print(f"   tree: {tree.hash(cs).hex()[:16]}...")
-    epoch = 0
-    
-    print(f"   Created empty tree with {len(tree.leaves)} leaves")
-
     timings['4_create_empty_group'] = time.time() - step_start
     print(f"⏱️ Created empty tree in {timings['4_create_empty_group']:.3f}s")
 
-    # 4. Replay all member additions (except creator)
+    # 5. Add all members WITHOUT updating indices each time
     step_start = time.time()
-    for member in members[1:]:  # Skip creator (leaf 0)
+    
+    # Get the maximum leaf index to determine required tree size
+    #max_leaf_index = max(m.get('leaf_index', 0) for m in members)
+    
+    # Add creator at leaf 0 (already done in create_empty_group)
+    # tree[0] already has creator_leaf
+    
+    # Add all other members
+    for member in members[1:]:
         member_id = member.get('user_id')
-        member_name = member.get('username')
         leaf_index = member.get('leaf_index')
         
-        print(f"   Replaying addition of {member_name} at leaf {leaf_index}")
-        
-        # Fetch member's KeyPackage
         member_kp_bytes = batch_keypackages.get(member_id)
         if not member_kp_bytes:
-            print(f"   ⚠️ No KeyPackage for {member_name}, skipping")
+            print(f"   ⚠️ No KeyPackage for {member.get('username')}, skipping")
             continue
         
         member_kp = KeyPackage.deserialize(bytearray(member_kp_bytes["key_package"]))
         member_leaf = member_kp.content.leaf_node
-        
-        # Add leaf to tree (simulate add_member without Welcome)
-        #new_leaf_index = len(tree.leaves)
-        
-        # Extend tree if needed
-        while tree.nodes <= leaf_index:
+       
+        if leaf_index >= tree.nodes:
             tree.extend()
         
-        # Add the leaf
         tree[leaf_index] = member_leaf
         tree[leaf_index]._leaf_index = leaf_index
         
-        # Update indices
-        for i in range(len(tree.leaves)):
-            if isinstance(tree.leaves[i], LeafNode):
-                tree.leaves[i]._leaf_index = i
-        
-        tree.update_leaf_index()
-        tree.update_node_index()
-        
-        epoch += 1
-        print(f"      Tree now has {len(tree.leaves)} leaves, epoch {epoch}")
+    tree.update_leaf_index()
+    tree.update_node_index()
     
     timings['5_tree_member_additions'] = time.time() - step_start
-    print(f"⏱️ Member additions to the tree in {timings['5_tree_member_additions']:.3f}s")
+    print(f"⏱️ Added {len(members)-1} members in {timings['5_tree_member_additions']:.3f}s")
 
-    # 5. Get current epoch from group details
+    # 6. Tree verification (optional, can be removed for production)
     step_start = time.time()
-    #group_details = get_group_details(group_id_b64, token)
-    #print(f"   Group details fetched for epoch: {group_details.get('last_epoch')}")
-    print(f"   User  generated Epoch: {epoch}")
-    #current_epoch = group_details.get('last_epoch', epoch)
-    current_epoch = epoch  # Use the epoch we calculated from member additions
-
-    print(f"   Final tree: {len(tree.leaves)} leaves, {tree.nodes} nodes")
-    print(f"   Current epoch: {current_epoch}")
-    
-    print(f"\n🔍 TREE VERIFICATION:")
-    print(f"   Number of leaves: {len(tree.leaves)}")
-    print(f"   Tree nodes: {tree.nodes}")
-    for i, leaf in enumerate(tree.leaves):
-        if isinstance(leaf, LeafNode) and leaf.value:
-            pub_key = bytes(leaf.value.encryption_key.data)[:16].hex()
-            print(f"   Leaf {i}: _leaf_index={leaf._leaf_index}, pub_key={pub_key}...")
-        else:
-            print(f"   Leaf {i}: {leaf}")
-
-    # Also log the raw tree hash calculation
-    raw_hash = tree.hash(cs)
-    print(f"   Raw tree hash: {raw_hash[:32].hex()}...")
-
-    # Verify this matches what you'll use
-    root_secret = raw_hash
-    print(f"   Root secret: {root_secret[:16].hex()}...")
-
+    current_epoch = len(members) - 1  # Since creator is epoch 0
     timings['6_tree_verification'] = time.time() - step_start
-    print(f"⏱️ Tree verification in {timings['6_tree_verification']:.3f}s")
 
     total_time = time.time() - total_start
     
-    # ========== PRINT SUMMARY ==========
     print(f"\n{'='*50}")
-    print(f"⏱️ TREE FOR UPDATE STATE TOTAL TIME: {total_time:.3f}s for {len(members)} members")
+    print(f"👉⏱️ TREE BUILD TOTAL TIME: {total_time*1000:.2f}ms for {len(members)} members")
     print(f"{'='*50}")
     print("📊 DETAILED TIMINGS:")
     for key, value in timings.items():
-        print(f"   {key}: {value:.3f}s")
-    
-    # Compare with previous runs
-        
+        print(f"   {key}: {value*1000:.2f}ms")
     print(f"{'='*50}\n")
 
     return tree, current_epoch, members
@@ -857,7 +801,7 @@ def get_batch_latest_keypackages(user_ids: List[str], token: str = None) -> dict
             headers=headers
         )
         
-        print(f"📦 Response status: {response.status_code}")
+        #print(f"📦 Response status: {response.status_code}")
         
         if response.status_code != 200:
             print(f"❌ Batch request failed: {response.text}")
@@ -910,7 +854,7 @@ def insert_welcome_batch(group_id_b64: str, welcomes: List[dict], token: str) ->
             headers={"Authorization": f"Bearer {token}"}
         )
         response.raise_for_status()
-        print(f"✅ Batch stored {len(welcomes)} welcomes")
+        #print(f"✅ Batch stored {len(welcomes)} welcomes")
         return True
     except Exception as e:
         print(f"❌ Batch store welcomes failed: {e}")
@@ -933,4 +877,28 @@ def notify_group_update_batch(group_id_b64: str, user_ids: List[str], update_dat
         return response.json()
     except Exception as e:
         print(f"❌ Batch notification failed: {e}")
+        return {"status": "error", "error": str(e)}
+def notify_group_creators_batch(group_ids_b64: dict, creator_ids: List[str], group_data: dict, token: str) -> dict:
+    """Notify group creators about new group in one request"""
+    responses={}
+    try:
+        for group_id_b64 in group_ids_b64.values():
+            group_id_bytes = base64.b64decode(group_id_b64)
+            group_id_hex = group_id_bytes.hex()
+            print(f"Notifying creators about group {group_id_hex} (base64: {group_id_b64})")
+            response = requests.post(
+                f"{BASE_URL}/api/notify-group-creators-batch",
+                json={
+                    "creator_ids": creator_ids,
+                    "group_id": group_id_b64,
+                    "group_data": group_data
+                },
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10
+            )
+            responses[group_id_b64] = response.raise_for_status().json() if response.status_code == 200 else {"status": "error", "error": f"HTTP {response.status_code}"}
+        #response.raise_for_status()
+        return responses
+    except Exception as e:
+        print(f"❌ Batch notify creators failed: {e}")
         return {"status": "error", "error": str(e)}

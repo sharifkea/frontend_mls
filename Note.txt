@@ -239,3 +239,21 @@ print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
    Final tree: 2 leaves, 3 nodes
    Current epoch: 1
    
+   get_group_members()
+   get_latest_keypackage(creator_id)
+
+   add_member_to_group()
+   update_state()
+   get_messages()
+   user_crypto_store[user_id]['private_key'] = private_key
+   key_package = KeyPackage.deserialize(bytearray(key_package_bytes))
+
+
+   #Final
+   #app.py
+   login()
+   initWebSocket()
+   create_group_with_online()
+   👉
+python app.py
+python 100_login.py

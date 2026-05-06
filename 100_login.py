@@ -33,7 +33,7 @@ def login_user(username, password):
         print(f"❌ Error logging in {username}: {str(e)}")
         return None
 
-def login_100_users():
+def login_100_users(number_of_users):
     users = []
     successful = 0
     failed = 0
@@ -44,7 +44,7 @@ def login_100_users():
     # Use ThreadPoolExecutor for concurrent logins (be careful with server load)
     with ThreadPoolExecutor(max_workers=5) as executor:  # Reduced to 5 to avoid overwhelming
         futures = {}
-        for i in range(1, 11):
+        for i in range(1, number_of_users + 1):
             username = f"testuser{i}"
             password = "password123"
             future = executor.submit(login_user, username, password)
@@ -55,7 +55,7 @@ def login_100_users():
             if result:
                 users.append(result)
                 successful += 1
-                print(f"✅ [{successful}/100] Logged in: {result['username']}")
+                print(f"✅ [{successful}/{number_of_users}] Logged in: {result['username']}")
             else:
                 failed += 1
                 print(f"❌ Failed: {futures[future]}")
@@ -93,7 +93,7 @@ if __name__ == "__main__":
         exit(1)
     
     # Login users
-    users = login_100_users()
+    users = login_100_users(300)
     
     # Verify active sessions
     time.sleep(1)

@@ -137,13 +137,13 @@ def login():
                         'group_id': group_id_b64,
                         'group_name': group.get('group_name')
                     }, timeout=2)
-                    print(f"Notification sent: {response.status_code}")
+                    #print(f"Notification sent: {response.status_code}")
                 except Exception as e:
                     print(f"Failed to notify: {e}")
         
         
-        print(f"   - User ID: {user_id}")
-        print(f"   - Token: {token}")
+        #print(f"   - User ID: {user_id}")
+        #print(f"   - Token: {token}")
         end = time.perf_counter()
         not_gro_cre_ms = (end - start) * 1000
         print(f"⏱️ Time for notifying group creators: {not_gro_cre_ms:.2f}ms")
@@ -211,7 +211,7 @@ def login():
         sav_act_ses_ms = (end - start) * 1000
         print(f"⏱️ Time for saving active session: {sav_act_ses_ms:.2f}ms")
         total_login_time += sav_act_ses_ms
-        print(f"✅ User {username} logged in successfully! ⏱️Total login time: {total_login_time:.2f}ms")
+        print(f"👉 ⏱️Total login time: {total_login_time:.2f}ms")
        #print(f"Session after login: {dict(session)}")
        #print(f"Active sessions now: {len(active_sessions)} users")
         
@@ -248,7 +248,7 @@ def update_group_state():
             user_crypto_store[user_id]['groups'][group_id_b64] = new_group_state
             end = time.perf_counter()
             tim_gr_sta_ms = (end - start) * 1000
-            print(f"⏱️📝 Time for updating group state: {tim_gr_sta_ms:.2f}ms")
+            print(f"👉⏱️ Time for updating group state: {tim_gr_sta_ms:.2f}ms")
             return jsonify({'success': True})
         else:
             return jsonify({'error': 'Failed to update group state'}), 400
@@ -306,7 +306,7 @@ def add_member_to_group():
             return jsonify({'error': 'User already in group'}), 400
         else:
             all_group_ids = current_members_ids + [new_user_id]
-            print(f"✅ User {new_user_id} is not currently a member, proceeding to add")
+            #print(f"✅ User {new_user_id} is not currently a member, proceeding to add")
         if any(m.get('user_id') == creator_id for m in current_members):
             all_group_ids.append(creator_id)  # Ensure creator is included for batch key package fetch
             print(f"✅ Including creator {creator_id} in batch key package fetch")
@@ -405,7 +405,7 @@ def add_member_to_group():
     
         #existing_members = [m for m in all_members if m.get('user_id') != new_user_id and m.get('user_id') != creator_id]
             
-        print(f"📢 Batch notifying {len(current_members_ids)} existing members about group update")
+        #print(f"📢 Batch notifying {len(current_members_ids)} existing members about group update")
         
         commit_data = {
             'type': 'group_update',
@@ -426,7 +426,7 @@ def add_member_to_group():
             token
         )
         
-        print(f"   Batch notification result: {result}")
+        #print(f"   Batch notification result: {result}")
         
         timings['11_notify_members'] = time.time() - step_start
         
@@ -434,11 +434,11 @@ def add_member_to_group():
         
         # ========== PRINT SUMMARY ==========
         print(f"\n{'='*50}")
-        print(f"⏱️ ADD MEMBER TO GROUP TIMINGS for {new_username}")
+        print(f"👉⏱️ ADD MEMBER TO GROUP TIMINGS for {new_username}TOTAL: {total_time*1000:.2f}ms")
         print(f"{'='*50}")
         for key, value in timings.items():
             print(f"   {key}: {value:.3f}s")
-        print(f"   TOTAL: {total_time:.3f}s")
+        print(f"   TOTAL: {total_time*1000:.2f}ms")
         print(f"{'='*50}\n")
 
         return jsonify({
@@ -570,9 +570,9 @@ def get_pending_welcomes():
         
         welcomes= welcomes_data.get('welcomes', [])
         
-        for welcome in welcomes:
+        #for welcome in welcomes:
            #print("------------------------------")
-           print(f"Welcome ID:{welcome.get("id")}")
+           ##print(f"Welcome ID:{welcome.get("id")}")
            #print("------------------------------")
 
         return jsonify({
@@ -675,7 +675,7 @@ def send_message():
         
         end = time.perf_counter()
         elapsed_ms = (end - start) * 1000
-        print(f"⏱️ [PERFORMANCE] encrypt_and_send_message took: {elapsed_ms:.2f}ms")
+        print(f"👉⏱️Total Time to encrypt_and_send_message took: {elapsed_ms:.2f}ms")
        #print(f"Result from encrypt_and_send_message: {result}")
         
         if 'error' in result:
@@ -699,6 +699,7 @@ def get_messages():
     user_id = session.get('user_id')
     token = session.get('token')
     username = session.get('username')
+    #print(f"📥 Get messages for group_id_hex: {group_id_hex} by user: {username} ")
     if not user_id or not token:
         return jsonify({'error': 'Not authenticated'}), 401
     
@@ -722,7 +723,7 @@ def get_messages():
     group_state = user_crypto_store[user_id]['groups'].get(group_id_b64)
         
     if not group_state:
-        print(f"⚠️ Group state missing for {group_id_b64}, restoring on demand...")
+        #print(f"⚠️ Group state missing for {group_id_b64}, restoring on demand...")
         new_group_state = update_state(user_id, group_id_b64, token)
         if new_group_state:
             user_crypto_store[user_id]['groups'][group_id_b64] = new_group_state
@@ -735,7 +736,7 @@ def get_messages():
             new_epoch = group_state.get('epoch', 0)
             new_leaf_index = group_state.get('leaf_index', 0)
                 
-            print(f"📢 Batch notifying {len(current_members_ids)} existing members for group update")
+            #print(f"📢 Batch notifying {len(current_members_ids)} existing members for group update")
             
             commit_data = {
                 'type': 'group_update',
@@ -756,7 +757,7 @@ def get_messages():
                 token
             )
             
-            print(f"   Batch notification result: {result}")
+            #print(f"   Batch notification result: {result}")
             
             timings = time.time() - step_start
             print(f"⏱️ Time for notifying other members after rejoining the group: {timings:.2f}s")
@@ -781,7 +782,7 @@ def get_messages():
     joined_epoch = group_state.get('epoch', 0)
     latest_epoch = group_state.get('group_last_epoch', joined_epoch)
     
-    print(f"📊 User joined at epoch: {joined_epoch}, group latest: {latest_epoch}")
+    #print(f"📊 User joined at epoch: {joined_epoch}, group latest: {latest_epoch}")
     # Build URL with since_epoch parameter
     params = {"limit": 50, "since_epoch": joined_epoch}
     # Build URL with since_message_id if available
@@ -849,7 +850,7 @@ def get_messages():
                 displayed_messages.append(msg.get('message_id'))
         group_state['displayed_messages'] = displayed_messages
 
-    print(f"<tool_call>Total decryption message time: {get_mes_db_ms+elapsed_ms:.2f}ms")
+    print(f"👉⏱️Total decryption message time: {get_mes_db_ms+elapsed_ms:.2f}ms")
 
     return jsonify({
         'success': True,
@@ -875,6 +876,7 @@ def debug_active_sessions():
 
 @app.route('/api/welcomes/process', methods=['POST'])
 def process_welcome():
+    start_total = time.perf_counter()
     """Process a welcome message and join a group"""
     data = request.json
     
@@ -920,16 +922,16 @@ def process_welcome():
     # 1. Get joiner_secret from Welcome
     final_secret = api_client_3.process_welcome_simple(welcome_b64, init_priv)
     
-    if final_secret:
-        print(f"\n🔍 Final secret for: {user_name} is  {final_secret[:8].hex()}")
-    else:
-        print(f"\n🔍 No final secret found for {user_name}")
+    #if final_secret:
+        #print(f"\n🔍 Final secret for: {user_name} is  {final_secret[:8].hex()}")
+    #else:
+        #print(f"\n🔍 No final secret found for {user_name}")
 
     # 2. Build tree using the working replay method
     tree, current_epoch, members = api_client.build_tree_by_replay(group_id_b64, token)
     
     # 6. Now we have the same tree as the creator
-    print(f"   Final tree has {len(tree.leaves)} leaves, {tree.nodes} nodes")
+    #print(f"   Final tree has {len(tree.leaves)} leaves, {tree.nodes} nodes")
     
     # 7. Derive epoch_secret from the tree
     # Ensure all leaf indices are set
@@ -978,8 +980,11 @@ def process_welcome():
     
     # Mark welcome as delivered
     api_client.mark_welcome_delivered(welcome_id, token)
+    #end = time.perf_counter()
+    total_wel_pro_ms = (time.perf_counter() - start_total) * 1000
+    print(f"👉⏱️Total Time to Process Welcome: {total_wel_pro_ms:.2f}ms")
     
-    print(f"✅ User {username} joined group with tree ({len(tree.leaves)} leaves)")
+    #print(f"✅ User {username} joined group with tree ({len(tree.leaves)} leaves)")
     
     return jsonify({
         'success': True,
@@ -1010,10 +1015,10 @@ def create_group_with_online():
     # ========== STEP 1: Get creator's key package ==========
     step_start = time.time()
     user_ids = [user.get('user_id') for user in online_users]
-    print(f"📦 Requesting key packages for users: {user_ids}")
+    #print(f"📦 Requesting key packages for users: {user_ids}")
     
     all_group_ids = user_ids + [creator_id]  # Include creator in batch fetch
-    print(f"📦 Fetching key packages for all group members : {all_group_ids}")
+    #print(f"📦 Fetching key packages for all group members : {all_group_ids}")
 
     batch_keypackages = api_client.get_batch_latest_keypackages(all_group_ids, token)
 
@@ -1028,7 +1033,7 @@ def create_group_with_online():
     creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes["key_package"]))
     creator_leaf = creator_kp.content.leaf_node
     timings['1_get_creator_kp'] = time.time() - step_start
-    print(f"🗝️✅ Fetched {len(batch_keypackages)} key packages in {timings['1_get_creator_kp']:.3f}s")
+    #print(f"🗝️✅ Fetched {len(batch_keypackages)} key packages in {timings['1_get_creator_kp']:.3f}s")
 
     # ========== STEP 2: Create empty group ==========
     step_start = time.time()
@@ -1057,7 +1062,7 @@ def create_group_with_online():
         
         kp_data = batch_keypackages.get(user_id)
         if not kp_data:
-            print(f"⚠️ No key package for {username}, skipping")
+            #print(f"⚠️ No key package for {username}, skipping")
             continue
         
         # Add to tree (using optimized function that doesn't update indices per member)
@@ -1134,10 +1139,10 @@ def create_group_with_online():
     if 'groups' not in user_crypto_store[creator_id]:
         user_crypto_store[creator_id]['groups'] = {}
     
-    if final_secret:
-        print(f"\n🔍 Final secret for: {creator_username} is  {final_secret[:8].hex()}")
-    else:
-        print(f"\n🔍 No final secret found for {creator_username}")
+    #if final_secret:
+        #print(f"\n🔍 Final secret for: {creator_username} is  {final_secret[:8].hex()}")
+    #else:
+        #print(f"\n🔍 No final secret found for {creator_username}")
     
     #save to local store
     save_local.save_final_secret(creator_id, group_id_b64, final_secret)
@@ -1165,7 +1170,7 @@ def create_group_with_online():
     
     # ========== PRINT SUMMARY ==========
     print(f"\n{'='*50}")
-    print(f"⏱️ OPTIMIZED TOTAL TIME: {total_time:.3f}s for {len(online_users)} members")
+    print(f"👉⏱️ TOTAL TIME to Create Group: {total_time*1000:.2f}ms for {len(online_users)} members")
     print(f"{'='*50}")
     print("📊 DETAILED TIMINGS:")
     for key, value in timings.items():
@@ -1272,8 +1277,8 @@ def debug_user_state():
     return jsonify(result)
 
 def update_state(user_id, group_id_b64, token=None):
-    print(f"\n🔄 Updating group state for user {user_id}")
-    
+    #print(f"\n🔄 Updating group state for user {user_id}")
+    total_start = time.perf_counter()
     # Initialize user crypto store if needed
     if user_id not in user_crypto_store:
         user_crypto_store[user_id] = {}
@@ -1285,14 +1290,14 @@ def update_state(user_id, group_id_b64, token=None):
     if group_state:
         final_secret = group_state.get('final_secret', bytes(32))
     else:
-        print(f"⚠️Attempting to load final_secret from local store...")
+        #print(f"⚠️Attempting to load final_secret from local store...")
         final_secret = save_local.get_final_secret(user_id, group_id_b64)
-        print(f"🗝️ final_secret (first 8 bytes): {final_secret[:8].hex()}")
+        #print(f"🗝️ final_secret (first 8 bytes): {final_secret[:8].hex()}")
         if final_secret and isinstance(final_secret, str):
             final_secret = bytes.fromhex(final_secret) if final_secret.startswith('0x') else final_secret.encode()
     
     if not final_secret:
-        print(f"⚠️ No final_secret found for user {user_id}, group {group_id_b64}")
+        #print(f"⚠️ No final_secret found for user {user_id}, group {group_id_b64}")
         return None
     
     if not token:
@@ -1308,9 +1313,9 @@ def update_state(user_id, group_id_b64, token=None):
     print(f"⏱️ Time for building tree: {build_tree_ms:.2f}ms")
     # Derive epoch secret
     root_secret = tree.hash(cs)
-    print(f"🫚   Derived root_secret: {root_secret[:8].hex()}...")
+    #print(f"🫚   Derived root_secret: {root_secret[:8].hex()}...")
     epoch_secret = DeriveSecret(cs, root_secret + final_secret, b"epoch")
-    print(f"🙊   Derived epoch_secret: {epoch_secret[:8].hex()}...")
+    #print(f"🙊   Derived epoch_secret: {epoch_secret[:8].hex()}...")
     
     # Find my leaf index
     my_leaf_index = None
@@ -1331,9 +1336,12 @@ def update_state(user_id, group_id_b64, token=None):
         final_secret=final_secret,
         root_secret=root_secret
     )
+    end = time.perf_counter()
+    update_tree_ms = (end - total_start) * 1000
+    print(f"⏱️Total Time for updating Group State: {update_tree_ms:.2f}ms")
     
-    print(f"✅ User {user_id} group state updated")
-    print(f"   Tree has {len(tree.leaves)} leaves, epoch {current_epoch}")
+    #print(f"✅ User {user_id} group state updated")
+    #print(f"   Tree has {len(tree.leaves)} leaves, epoch {current_epoch}")
     
     return new_group_state
 
@@ -1388,9 +1396,9 @@ def initialize_group_state_with_keys(group_id_b64: str, tree, cipher_suite, my_l
         'displayed_messages': []            # List of all displayed message IDs
     }
     
-    print(f"✅ Initialized group state with message tracking")
-    print(f"   Initial root_secret: {root_secret[:8].hex()}...")
-    print(f"   Tracking {len(per_sender_roots)} senders")
+    #print(f"✅ Initialized group state with message tracking")
+    #print(f"   Initial root_secret: {root_secret[:8].hex()}...")
+    #print(f"   Tracking {len(per_sender_roots)} senders")
     
     return group_state
 

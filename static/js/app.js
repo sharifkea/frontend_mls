@@ -43,7 +43,6 @@ function base64ToHex(base64) {
 }
 
 
-// Replace your existing initWebSocket with this updated version
 async function initWebSocket() {
     console.log('🔍 initWebSocket called');
     
