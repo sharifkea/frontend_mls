@@ -42,7 +42,7 @@ def login_100_users(number_of_users):
     start_time = time.time()
     
     # Use ThreadPoolExecutor for concurrent logins (be careful with server load)
-    with ThreadPoolExecutor(max_workers=5) as executor:  # Reduced to 5 to avoid overwhelming
+    with ThreadPoolExecutor(max_workers=50) as executor:  # Reduced to 5 to avoid overwhelming
         futures = {}
         for i in range(1, number_of_users + 1):
             username = f"testuser{i}"
@@ -93,10 +93,10 @@ if __name__ == "__main__":
         exit(1)
     
     # Login users
-    users = login_100_users(300)
+    users = login_100_users(5000)
     
     # Verify active sessions
-    time.sleep(1)
+    time.sleep(0.1)
     check_active_sessions()
     
     # Save results

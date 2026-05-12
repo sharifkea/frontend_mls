@@ -21,11 +21,11 @@ def create_user(username, password):
     return {"user_id": user_id, "username": username}
 
 # Run for 100 users
-def create_100_users(user_number=1000):
+def create_100_users(user_number=5000):
     users = []
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = []
-        for i in range(1, user_number + 1):
+        for i in range(1001, user_number + 1):
             username = f"testuser{i}"
             password = "password123"
             futures.append(executor.submit(create_user, username, password))

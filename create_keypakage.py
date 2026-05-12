@@ -71,7 +71,7 @@ def get_x25519_pub_bytes():
 def GeneratKeyPackage(user_id: str):
    #print("=== Generating KeyPackage ===\n")
 
-    cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 # same as before
+    cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 
 
     # 1. Load keys
     ed25519_priv_bytes, ed25519_pub_bytes = get_ed25519_keys()

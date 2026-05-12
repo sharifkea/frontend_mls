@@ -35,6 +35,7 @@ app.config['DEBUG_TB_PROFILER_ENABLED'] = True
 toolbar = DebugToolbarExtension(app)
 
 cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 
+#cs= CipherSuite.MLS_256_DHKEMP256_AES256GCM_SHA384_P256_SHA256_ECDSA_SECP256R1
 load_dotenv()
 
 app = Flask(__name__)
@@ -89,6 +90,7 @@ def login():
     
     print(f"Login attempt for username: {username}")
     
+    
     if not username or not password:
         return jsonify({'error': 'Username and password required'}), 400
     
@@ -103,7 +105,7 @@ def login():
         
         user_id = result['user_id']
         token = result['access_token']
-        
+        print(f"✅ Login successful for {username}, Token: {token}")
         end = time.perf_counter()
         user_pass_db_ms = (end - start) * 1000
         print(f"⏱️ Time for user authentication and database access: {user_pass_db_ms:.2f}ms")
@@ -1070,9 +1072,14 @@ def create_group_with_online():
             group, user_id, creator_private_key, leaf_index, kp_data["key_package"]
         )
         #joiner_secrets.append((user_id, joiner_secret))
-        final_secret = joiner_secret  # Keep overwriting to get the final one after all adds
+        #final_secret = joiner_secret  # Keep overwriting to get the final one after all adds
         members_for_db.append({"user_id": user_id, "leaf_index": leaf_index, "username": username})
         leaf_index += 1
+    
+    # Creating final_secret from Random + Creator Key Mix
+    random_secret = secrets.token_bytes(32)
+    creator_derived = DeriveSecret(cs, creator_private_key, b"group_seed")
+    final_secret = DeriveSecret(cs, random_secret + creator_derived, b"mix")
     
     timings['5_add_members_loop'] = time.time() - step_start
     #print(f"➕ Added {len(joiner_secrets)} members in {timings['5_add_members_loop']:.3f}s")

@@ -123,7 +123,7 @@ def add_member_to_tree_optimized(group, new_member_id: str, committer_priv_bytes
     """
     Optimized version - reduces tree operations
     """
-    print(f"\n➕ Adding {new_member_id} to tree")
+    #print(f"\n➕ Adding {new_member_id} to tree")
     
     # Fetch new member's KeyPackage
     if new_kp_bytes is None:
@@ -199,7 +199,7 @@ def add_member_to_tree_optimized(group, new_member_id: str, committer_priv_bytes
     }
     group.update(updated_group)
     
-    print(f"   Member added at leaf {new_leaf_index}, new epoch: {group['epoch']}")
+    #print(f"   Member added at leaf {new_leaf_index}, new epoch: {group['epoch']}")
     
     return joiner_secret, updated_group
 

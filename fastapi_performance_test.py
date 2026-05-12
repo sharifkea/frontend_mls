@@ -164,8 +164,8 @@ if __name__ == "__main__":
     import sys
     
     # Use your existing token
-    TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMzVlOWFjYjYtYmQzOS00ZWM1LWExYTYtY2IzMGNmZTg5YTcxIiwiZXhwIjoxNzc3ODgzOTA5fQ.irwFkTGxGDTEGo1XUeP55v-oX0djEUu1soCWVS_fMx0"
-    GROUP_ID_HEX = "FEABE16AA9A9C341F7CBFD5305B35775"
+    TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiOWM2YjNiMjctYWVlNy00MGE3LWFkMWYtYThiMjlkMmEwODliIiwiZXhwIjoxNzc4MDk3NTA0fQ.xIeG7ik-hV5eObSSvTJZf8OXVEQIf8O8R1kUx3o1ukg"
+    GROUP_ID_HEX = "040C20E75D0A6DB8E2FB308A323D5442"
     
     tester = FastAPIPerformanceTest(TOKEN, GROUP_ID_HEX)
     tester.run_all_tests()
