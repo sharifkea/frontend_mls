@@ -28,7 +28,7 @@ def test_with_login(username, password, group_id_hex):
     print(f"Token: {data['token'][:50]}...")
     
     # 2. Test send message
-    print("\n📤 Testing send message...")
+    print("\n Testing send message...")
     times = []
     
     for i in range(5):  # Reduce iterations for quick test
@@ -49,11 +49,11 @@ def test_with_login(username, password, group_id_hex):
             print(f"   Error {i+1}: {response.status_code} - {response.text[:100]}")
     
     if times:
-        print(f"\n   ✅ Send message avg: {statistics.mean(times):.2f} ms")
+        print(f"\n   [OK] Send message avg: {statistics.mean(times):.2f} ms")
         print(f"   Min: {min(times):.2f} ms, Max: {max(times):.2f} ms")
     
     # 3. Test get messages
-    print("\n📥 Testing get messages...")
+    print("\n Testing get messages...")
     times = []
     
     for i in range(5):
@@ -71,7 +71,7 @@ def test_with_login(username, password, group_id_hex):
             print(f"   Error {i+1}: {response.status_code}")
     
     if times:
-        print(f"\n   ✅ Get messages avg: {statistics.mean(times):.2f} ms")
+        print(f"\n   [OK] Get messages avg: {statistics.mean(times):.2f} ms")
         print(f"   Min: {min(times):.2f} ms, Max: {max(times):.2f} ms")
     
     return {

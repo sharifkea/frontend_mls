@@ -1,9 +1,28 @@
 import csv
 import os
 import base64
+import platform
+
+def get_storage_path():
+    """Get platform-specific storage directory"""
+    system = platform.system()
+    app_name = "MLSMessenger"
+    
+    if system == "Windows":
+        base = os.getenv('APPDATA')
+    elif system == "Darwin":  # macOS
+        base = os.path.expanduser('~/Library/Application Support')
+    else:  # Linux
+        base = os.path.expanduser('~/.config')
+    
+    path = os.path.join(base, app_name)
+    os.makedirs(path, exist_ok=True)
+    return path
 
 def get_final_secret(user_id, group_id):
-    filename = f"files/{user_id}.csv"
+    storage_path = get_storage_path()
+    print(f"Looking for credentials in: {storage_path}")
+    filename = os.path.join(storage_path, f"{user_id}.csv")
     if not os.path.exists(filename):
         return None
 
@@ -23,7 +42,8 @@ def get_final_secret(user_id, group_id):
     return None
 
 def save_final_secret(user_id, group_id, final_secret):
-    filename = f"files/{user_id}.csv"
+    storage_path = get_storage_path()
+    filename = os.path.join(storage_path, f"{user_id}.csv")
     headers = ['groupId', 'finalSecret']
     
     # Convert bytes to hex string for CSV storage

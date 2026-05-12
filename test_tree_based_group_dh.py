@@ -35,7 +35,7 @@ def generate_key_package(username: str):
 
 def build_public_tree(members_data: list) -> RatchetTree:
     """Build the public ratchet tree (same for everyone)"""
-    print("\n🌲 Building public ratchet tree...")
+    print("\n[TREE] Building public ratchet tree...")
     tree = RatchetTree()
     n = len(members_data)
 
@@ -60,7 +60,7 @@ def build_public_tree(members_data: list) -> RatchetTree:
 
 def derive_group_key_tree_dh(member_data: dict, public_tree: RatchetTree, cipher_suite, my_index: int) -> bytes:
     """Tree-based Group Diffie-Hellman derivation (ART-style)"""
-    print(f"\n🔐 Computing Group Key for {member_data['username']} (leaf {my_index})...")
+    print(f"\n[CRYPTO] Computing Group Key for {member_data['username']} (leaf {my_index})...")
 
     my_priv_bytes = member_data['init_priv']
     my_priv_key = X25519PrivateKey.from_private_bytes(my_priv_bytes)
@@ -105,7 +105,7 @@ def derive_group_key_tree_dh(member_data: dict, public_tree: RatchetTree, cipher
 
 def test_tree_based_group_dh():
     print("=" * 100)
-    print("🧪 Tree-based Group Diffie-Hellman (ART-style) Test")
+    print("[TEST] Tree-based Group Diffie-Hellman (ART-style) Test")
     print("=" * 100)
 
     users = ["alice", "bob", "charlie"]
@@ -138,10 +138,10 @@ def test_tree_based_group_dh():
             all_same = False
 
     if all_same:
-        print("\n✅ SUCCESS! All users derived the **same** group key using Tree-based Group DH!")
+        print("\n[OK] SUCCESS! All users derived the **same** group key using Tree-based Group DH!")
         print(f"   Group Key = {first_key[:32].hex()}")
     else:
-        print("\n❌ Different group keys — we can still tune the KDF labels.")
+        print("\n[ERROR] Different group keys — we can still tune the KDF labels.")
 
     return all_same
 

@@ -26,7 +26,7 @@ class PerformanceMonitor:
         
         thread = threading.Thread(target=monitor, daemon=True)
         thread.start()
-        print("📊 Performance monitoring started")
+        print("[STATS] Performance monitoring started")
     
     def stop_monitoring(self):
         """Stop monitoring"""

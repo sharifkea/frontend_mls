@@ -17,7 +17,7 @@ def get_message_encryption_key(group, epoch_secret: bytes):
     """
     Derive the message encryption key for the current epoch
     """
-    print(f"\n🔑 Deriving message encryption key for epoch {group['epoch']}")
+    print(f"\n[KEY] Deriving message encryption key for epoch {group['epoch']}")
     
     # Derive the message key from epoch secret
     # In MLS, this would be more complex with ratchets
@@ -105,7 +105,7 @@ def send_encrypted_message(group, sender_leaf_index: int, message_text: str, epo
         msg_content=private_message
     )
     
-    print(f"✅ PrivateMessage created")
+    print(f"[OK] PrivateMessage created")
     print(f"   Total size: {len(mls_message.serialize())} bytes")
     
     # Return both the message and the nonce (needed for decryption)
@@ -121,13 +121,13 @@ def receive_encrypted_message(group, message: MLSMessage, nonce: bytes,
     
     # 1. Verify it's a private message
     if message.wire_format != WireFormat.MLS_PRIVATE_MESSAGE:
-        print("❌ Not a private message")
+        print("[ERROR] Not a private message")
         return None
     
     # 2. Extract PrivateMessage
     private_msg = message.msg_content
     if not isinstance(private_msg, PrivateMessage):
-        print("❌ Not a PrivateMessage")
+        print("[ERROR] Not a PrivateMessage")
         return None
     
     print(f"   PrivateMessage details:")
@@ -138,7 +138,7 @@ def receive_encrypted_message(group, message: MLSMessage, nonce: bytes,
     
     # 3. Verify epoch
     if private_msg.epoch != group["epoch"]:
-        print(f"❌ Epoch mismatch: expected {group['epoch']}, got {private_msg.epoch}")
+        print(f"[ERROR] Epoch mismatch: expected {group['epoch']}, got {private_msg.epoch}")
         return None
     
     # 4. Get decryption key
@@ -153,7 +153,7 @@ def receive_encrypted_message(group, message: MLSMessage, nonce: bytes,
         )
         print(f"   Decrypted: {len(plaintext)} bytes")
     except Exception as e:
-        print(f"❌ Decryption failed: {e}")
+        print(f"[ERROR] Decryption failed: {e}")
         return None
     
     # 6. Parse the FramedContent
@@ -161,21 +161,21 @@ def receive_encrypted_message(group, message: MLSMessage, nonce: bytes,
         framed_content = FramedContent.deserialize(bytearray(plaintext))
         print(f"   Successfully parsed FramedContent")
     except Exception as e:
-        print(f"❌ Failed to parse FramedContent: {e}")
+        print(f"[ERROR] Failed to parse FramedContent: {e}")
         return None
     
     # 7. Verify sender
     if framed_content.sender.leaf_index != expected_sender_index:
-        print(f"❌ Sender mismatch: expected {expected_sender_index}, got {framed_content.sender.leaf_index}")
+        print(f"[ERROR] Sender mismatch: expected {expected_sender_index}, got {framed_content.sender.leaf_index}")
         return None
     
     # 8. Extract message text
     if hasattr(framed_content, 'application_data'):
         message_text = framed_content.application_data.data.decode('utf-8')
-        print(f"✅ Message received: '{message_text}'")
+        print(f"[OK] Message received: '{message_text}'")
         return message_text
     else:
-        print(f"✅ Decrypted but no application data found")
+        print(f"[OK] Decrypted but no application data found")
         return None
 
 # Simple test function
@@ -188,7 +188,7 @@ def test_encrypted_message(group, alice_index, bob_index, epoch_secret):
     print("="*60)
     
     # Bob sends encrypted message to Alice
-    print("\n📤 Bob sending encrypted message...")
+    print("\n Bob sending encrypted message...")
     bob_msg, nonce = send_encrypted_message(
         group, 
         bob_index, 
@@ -197,7 +197,7 @@ def test_encrypted_message(group, alice_index, bob_index, epoch_secret):
     )
     
     # Alice receives and decrypts
-    print("\n📥 Alice receiving encrypted message...")
+    print("\n Alice receiving encrypted message...")
     received = receive_encrypted_message(
         group, 
         bob_msg, 
@@ -207,7 +207,7 @@ def test_encrypted_message(group, alice_index, bob_index, epoch_secret):
     )
     
     # Alice replies
-    print("\n📤 Alice sending encrypted reply...")
+    print("\n Alice sending encrypted reply...")
     alice_msg, nonce2 = send_encrypted_message(
         group, 
         alice_index, 
@@ -216,7 +216,7 @@ def test_encrypted_message(group, alice_index, bob_index, epoch_secret):
     )
     
     # Bob receives
-    print("\n📥 Bob receiving encrypted reply...")
+    print("\n Bob receiving encrypted reply...")
     received2 = receive_encrypted_message(
         group, 
         alice_msg, 
@@ -225,4 +225,4 @@ def test_encrypted_message(group, alice_index, bob_index, epoch_secret):
         epoch_secret
     )
     
-    print("\n✅ Encrypted message exchange complete!")
+    print("\n[OK] Encrypted message exchange complete!")

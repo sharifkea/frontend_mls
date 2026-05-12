@@ -61,7 +61,7 @@ def get_group_details(group_id_b64: str, token: str):
         group_id_hex = group_id_bytes.hex()
         
         url = f"{BASE_URL}/groups/{group_id_hex}"
-        #print(f"📡 Fetching group details from: {url}")
+        #print(f"Fetching group details from: {url}")
         
         response = requests.get(
             url,
@@ -70,14 +70,14 @@ def get_group_details(group_id_b64: str, token: str):
         
         if response.status_code == 200:
             data = response.json()
-            #print(f"✅ Got group details - epoch: {data.get('last_epoch')}")
+            #print(f"[OK] Got group details - epoch: {data.get('last_epoch')}")
             return data
         else:
-            #print(f"❌ Failed to get group details: {response.status_code}")
+            #print(f"[ERROR] Failed to get group details: {response.status_code}")
             return {"error": f"HTTP {response.status_code}"}
             
     except Exception as e:
-        #print(f"❌ Error: {str(e)}")
+        #print(f"[ERROR] Error: {str(e)}")
         return {"error": str(e)}
 
     
@@ -135,10 +135,10 @@ def get_latest_keypackage(user_id: str):
             headers={"Content-Type": "application/octet-stream"}
         )
         response.raise_for_status()
-        #print(f"✅ Got key package: {len(response.content)} bytes")
+        #print(f"[OK] Got key package: {len(response.content)} bytes")
         return response.content
     except Exception as e:
-        #print(f"❌ Get latest keypackage failed: {str(e)}")
+        #print(f"[ERROR] Get latest keypackage failed: {str(e)}")
         return None
 
 # ============ GROUP MANAGEMENT ============
@@ -146,7 +146,7 @@ def get_latest_keypackage(user_id: str):
 def get_my_groups(token: str):
     """Get all groups for the current user from FastAPI"""
     try:
-        #print(f"📡 Fetching groups from FastAPI...")
+        #print(f"Fetching groups from FastAPI...")
         
         response = requests.get(
             f"{BASE_URL}/users/me/groups",
@@ -159,20 +159,20 @@ def get_my_groups(token: str):
         
         if response.status_code == 200:
             data = response.json()
-            #print(f"✅ Retrieved {len(data.get('groups', []))} groups")
+            #print(f"[OK] Retrieved {len(data.get('groups', []))} groups")
             return data
         else:
-            #print(f"❌ Failed to get groups: {response.status_code}")
+            #print(f"[ERROR] Failed to get groups: {response.status_code}")
             return {"error": f"HTTP {response.status_code}", "groups": []}
             
     except requests.exceptions.Timeout:
-        #print("❌ Timeout fetching groups")
+        #print("[ERROR] Timeout fetching groups")
         return {"error": "Timeout", "groups": []}
     except requests.exceptions.ConnectionError:
-        #print("❌ Connection error fetching groups")
+        #print("[ERROR] Connection error fetching groups")
         return {"error": "Connection error", "groups": []}
     except Exception as e:
-        #print(f"❌ Error fetching groups: {str(e)}")
+        #print(f"[ERROR] Error fetching groups: {str(e)}")
         return {"error": str(e), "groups": []}
 
 def get_epoch_secret(group_id_b64: str, epoch: int, token: str):
@@ -185,17 +185,17 @@ def get_epoch_secret(group_id_b64: str, epoch: int, token: str):
         group_id_hex = group_id_bytes.hex()
         
         url = f"{BASE_URL}/groups/{group_id_hex}/epoch-secrets/{epoch}"
-        #print(f"📡 Fetching epoch secret from: {url}")
+        #print(f"Fetching epoch secret from: {url}")
         
         response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
         
         if response.status_code == 200:
             return response.json()
         else:
-            #print(f"❌ Failed to get epoch secret: {response.status_code}")
+            #print(f"[ERROR] Failed to get epoch secret: {response.status_code}")
             return {"error": f"HTTP {response.status_code}"}
     except Exception as e:
-        #print(f"❌ Error getting epoch secret: {str(e)}")
+        #print(f"[ERROR] Error getting epoch secret: {str(e)}")
         return {"error": str(e)}
     
 # ============ MESSAGE MANAGEMENT ============
@@ -348,14 +348,14 @@ def insert_welcome(group_id_b64: str, new_member_id: str, welcome_bytes: bytes, 
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
         
-        #print(f"✅ Welcome stored: {response.json()}")
+        #print(f"[OK] Welcome stored: {response.json()}")
         return response.json()
     
     except requests.exceptions.HTTPError as e:
-        #print(f"❌ HTTP {e.response.status_code}: {e.response.text}")
+        #print(f"[ERROR] HTTP {e.response.status_code}: {e.response.text}")
         return {"error": f"{e.response.status_code} - {e.response.text}"}
     except Exception as e:
-        #print(f"❌ Failed: {str(e)}")
+        #print(f"[ERROR] Failed: {str(e)}")
         return {"error": str(e)}
 
 def get_group_members(group_id_b64: str, token: str):
@@ -382,14 +382,14 @@ def get_group_members(group_id_b64: str, token: str):
         
         if response.status_code == 200:
             data = response.json()
-            #print(f"✅ Found {len(data.get('members', []))} members")
+            #print(f"[OK] Found {len(data.get('members', []))} members")
             return data
         else:
-            #print(f"❌ Failed: {response.status_code} - {response.text}")
+            #print(f"[ERROR] Failed: {response.status_code} - {response.text}")
             return {"error": f"HTTP {response.status_code}"}
             
     except Exception as e:
-        #print(f"❌ FAILED: {str(e)}")
+        #print(f"[ERROR] FAILED: {str(e)}")
         return {"error": str(e)}
 
 def add_group_member(group_id_b64: str, user_id: str, leaf_index: int, token: str):
@@ -419,14 +419,14 @@ def add_group_member(group_id_b64: str, user_id: str, leaf_index: int, token: st
         )
         
         if response.status_code == 200:
-            #print(f"✅ Member {user_id} added at leaf {leaf_index}")
+            #print(f"[OK] Member {user_id} added at leaf {leaf_index}")
             return response.json()
         else:
-            #print(f"❌ Failed: {response.status_code} - {response.text}")
+            #print(f"[ERROR] Failed: {response.status_code} - {response.text}")
             return {"error": f"HTTP {response.status_code}"}
             
     except Exception as e:
-        #print(f"❌ FAILED: {str(e)}")
+        #print(f"[ERROR] FAILED: {str(e)}")
         return {"error": str(e)}
 
 def create_empty_group(creator_leaf_node: LeafNode, creator_name: str = "bob"):
@@ -493,7 +493,7 @@ def create_empty_group(creator_leaf_node: LeafNode, creator_name: str = "bob"):
 def get_pending_welcomes(token: str):
     """Get pending welcome messages for the current user from FastAPI"""
     try:
-        #print(f"📡 Fetching pending welcomes from FastAPI...")
+        #print(f"Fetching pending welcomes from FastAPI...")
         
         response = requests.get(
             f"{BASE_URL}/pending-welcomes",
@@ -506,14 +506,14 @@ def get_pending_welcomes(token: str):
         
         if response.status_code == 200:
             data = response.json()
-            #print(f"✅ Retrieved {len(data.get('welcomes', []))} pending welcomes")
+            #print(f"[OK] Retrieved {len(data.get('welcomes', []))} pending welcomes")
             return data
         else:
-            #print(f"❌ Failed to get welcomes: {response.status_code}")
+            #print(f"[ERROR] Failed to get welcomes: {response.status_code}")
             return {"error": f"HTTP {response.status_code}", "welcomes": []}
             
     except Exception as e:
-        #print(f"❌ Error fetching welcomes: {str(e)}")
+        #print(f"[ERROR] Error fetching welcomes: {str(e)}")
         return {"error": str(e), "welcomes": []}    
         
 
@@ -529,7 +529,7 @@ def mark_welcome_delivered(welcome_id: str, token: str):
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        #print(f"❌ Failed to mark welcome delivered: {str(e)}")
+        #print(f"[ERROR] Failed to mark welcome delivered: {str(e)}")
         return {"error": str(e)}
     
 
@@ -538,7 +538,7 @@ def mark_welcome_delivered(welcome_id: str, token: str):
 def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, user_id: str, group_state: dict):
     try:
         #print(f"\n{'='*60}")
-        #print(f"🔐 ENCRYPTING MESSAGE - User: {user_id[:8]}...")
+        #print(f"[CRYPTO] ENCRYPTING MESSAGE - User: {user_id[:8]}...")
         #print(f"{'='*60}")
         
         start = time.perf_counter()
@@ -558,9 +558,9 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         
         # Print tree details for this user
         tree_hash = api_client_2.get_tree_hash(tree, group_state['cipher_suite'])
-        #print(f"   🌲 Tree hash: {tree_hash[:16]}...")
-        #print(f"   🌲 Leaves count: {len(tree.leaves)}")
-        #print(f"   🌲 Nodes count: {tree.nodes}")
+        #print(f"   [TREE] Tree hash: {tree_hash[:16]}...")
+        #print(f"   [TREE] Leaves count: {len(tree.leaves)}")
+        #print(f"   [TREE] Nodes count: {tree.nodes}")
         
         
         
@@ -568,13 +568,13 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         #for i, leaf in enumerate(tree.leaves):
             #if isinstance(leaf, LeafNode):
                 #if hasattr(leaf, '_leaf_index'):
-                    #print(f"   🌿 Leaf {i}: index={leaf._leaf_index}")
+                    #print(f"    Leaf {i}: index={leaf._leaf_index}")
                 #else:
-                    #print(f"   🌿 Leaf {i}: NO _leaf_index!")
+                    #print(f"    Leaf {i}: NO _leaf_index!")
         
         end = time.perf_counter()
         leaf_inf_ms = (end - start) * 1000
-        print(f"⏱️ Time for getting sender leaf information from the tree: {leaf_inf_ms:.2f}ms")
+        print(f"[CLOCK] Time for getting sender leaf information from the tree: {leaf_inf_ms:.2f}ms")
         start = time.perf_counter()
         # Derive epoch secret
         #epoch_secret = api_client_2.derive_epoch_secret_from_tree(tree, group_state['cipher_suite'])
@@ -587,7 +587,7 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         #print(f"   Epoch: {epoch}")
         #print(f"   My leaf index: {my_leaf_index}")
         #print(f"   Message: {message_text[:50]}...")
-        #print(f"🔐 Encrypting message using derived epoch_secret ({epoch_secret[:8].hex()}")
+        #print(f"[CRYPTO] Encrypting message using derived epoch_secret ({epoch_secret[:8].hex()}")
 
         sender = Sender(sender_type=SenderType.member, leaf_index=my_leaf_index)
         
@@ -601,14 +601,14 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         )
         content_bytes = framed_content.serialize()
         message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
-        #print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
+        #print(f"[KEY] Message key (first 8 bytes): {message_key[:8].hex()}")
         nonce = secrets.token_bytes(12)
         aead = AESGCM(message_key)
         ciphertext = aead.encrypt(nonce, content_bytes, b"")
         
         end = time.perf_counter()
         msg_enc_ms = (end - start) * 1000
-        print(f"⏱️ Time for encrypting message: {msg_enc_ms:.2f}ms")
+        print(f"[CLOCK] Time for encrypting message: {msg_enc_ms:.2f}ms")
         start = time.perf_counter()
 
         # 6. Store ONLY the ciphertext and nonce (NOT wrapped in MLSMessage!)
@@ -633,10 +633,10 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
         if response.status_code == 200:
             end = time.perf_counter()
             save_db_ms = (end - start) * 1000
-            print(f"⏱️ Time for saving message to database: {save_db_ms:.2f}ms")
+            print(f"[CLOCK] Time for saving message to database: {save_db_ms:.2f}ms")
             start = time.perf_counter()
-            print(f"⏱️Total time for encrypting and sending message: {leaf_inf_ms + msg_enc_ms + save_db_ms:.2f}ms")
-            #print(f"✅ Message sent successfully")
+            print(f"[CLOCK]Total time for encrypting and sending message: {leaf_inf_ms + msg_enc_ms + save_db_ms:.2f}ms")
+            #print(f"[OK] Message sent successfully")
             return {"success": True, "message": "Message sent"}
         else:
             return {"error": f"Server error: {response.text}"}
@@ -648,7 +648,7 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
 
 def decrypt_message(msg_data: dict, group_state: dict, user_id: str):
     try:
-        #print(f" 🔓 Decrypting with tree(first 8 bytes): {group_state['tree'][:8]}")
+        #print(f" [UNLOCK] Decrypting with tree(first 8 bytes): {group_state['tree'][:8]}")
         #epoch_secret = api_client_2.derive_epoch_secret_from_tree(group_state['tree'], group_state['cipher_suite'])
         epoch_secret = group_state.get('epoch_secret')
         cipher_suite = group_state['cipher_suite']
@@ -657,7 +657,7 @@ def decrypt_message(msg_data: dict, group_state: dict, user_id: str):
         #print(f"Decrypting message - epoch {epoch}, sender: {msg_data.get('sender_username')}")
 
         message_key = DeriveSecret(cipher_suite, epoch_secret, b"message key")
-        #print(f"🗝️ Message key (first 8 bytes): {message_key[:8].hex()}")
+        #print(f"[KEY] Message key (first 8 bytes): {message_key[:8].hex()}")
 
         ciphertext = base64.b64decode(msg_data['ciphertext'])
         nonce = base64.b64decode(msg_data['nonce'])
@@ -682,7 +682,7 @@ def decrypt_message(msg_data: dict, group_state: dict, user_id: str):
         }
         
     except Exception as e:
-        print(f"❌ Decryption failed: {type(e).__name__}: {e}")
+        print(f"[ERROR] Decryption failed: {type(e).__name__}: {e}")
         raise
 
 # Add this function to api_client.py
@@ -707,14 +707,14 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     
     members.sort(key=lambda m: m['leaf_index'])
     timings['1_get_group_members_db'] = time.time() - step_start
-    print(f"⏱️ Fetched all members from database in {timings['1_get_group_members_db']:.3f}s")
+    print(f"[CLOCK] Fetched all members from database in {timings['1_get_group_members_db']:.3f}s")
 
     # 2. Fetch all key packages in a single batch
     step_start = time.time()
     all_members_ids = [member['user_id'] for member in members]
     batch_keypackages = get_batch_latest_keypackages(all_members_ids, token)
     timings['2_get_batch_keypackages'] = time.time() - step_start
-    print(f"⏱️ Fetched all key packages in {timings['2_get_batch_keypackages']:.3f}s")
+    print(f"[CLOCK] Fetched all key packages in {timings['2_get_batch_keypackages']:.3f}s")
 
     # 3. Get creator's leaf node
     step_start = time.time()
@@ -726,14 +726,14 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     creator_kp = KeyPackage.deserialize(bytearray(creator_kp_bytes["key_package"]))
     creator_leaf = creator_kp.content.leaf_node
     timings['3_get_creator_kp'] = time.time() - step_start
-    print(f"⏱️ Taking creator's key package in {timings['3_get_creator_kp']:.3f}s")
+    print(f"[CLOCK] Taking creator's key package in {timings['3_get_creator_kp']:.3f}s")
 
     # 4. Create empty tree
     step_start = time.time()
     temp_group = create_empty_group(creator_leaf, "temp")
     tree = temp_group['tree']
     timings['4_create_empty_group'] = time.time() - step_start
-    print(f"⏱️ Created empty tree in {timings['4_create_empty_group']:.3f}s")
+    print(f"[CLOCK] Created empty tree in {timings['4_create_empty_group']:.3f}s")
 
     # 5. Add all members WITHOUT updating indices each time
     step_start = time.time()
@@ -751,7 +751,7 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
         
         member_kp_bytes = batch_keypackages.get(member_id)
         if not member_kp_bytes:
-            print(f"   ⚠️ No KeyPackage for {member.get('username')}, skipping")
+            print(f"   [WARNING] No KeyPackage for {member.get('username')}, skipping")
             continue
         
         member_kp = KeyPackage.deserialize(bytearray(member_kp_bytes["key_package"]))
@@ -767,7 +767,7 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     tree.update_node_index()
     
     timings['5_tree_member_additions'] = time.time() - step_start
-    print(f"⏱️ Added {len(members)-1} members in {timings['5_tree_member_additions']:.3f}s")
+    print(f"[CLOCK] Added {len(members)-1} members in {timings['5_tree_member_additions']:.3f}s")
 
     # 6. Tree verification (optional, can be removed for production)
     step_start = time.time()
@@ -777,9 +777,9 @@ def build_tree_by_replay(group_id_b64: str, token: str) -> tuple[RatchetTree, in
     total_time = time.time() - total_start
     
     print(f"\n{'='*50}")
-    print(f"👉⏱️ TREE BUILD TOTAL TIME: {total_time*1000:.2f}ms for {len(members)} members")
+    print(f"[TIMER][CLOCK] TREE BUILD TOTAL TIME: {total_time*1000:.2f}ms for {len(members)} members")
     print(f"{'='*50}")
-    print("📊 DETAILED TIMINGS:")
+    print("[STATS] DETAILED TIMINGS:")
     for key, value in timings.items():
         print(f"   {key}: {value*1000:.2f}ms")
     print(f"{'='*50}\n")
@@ -801,10 +801,10 @@ def get_batch_latest_keypackages(user_ids: List[str], token: str = None) -> dict
             headers=headers
         )
         
-        #print(f"📦 Response status: {response.status_code}")
+        #print(f" Response status: {response.status_code}")
         
         if response.status_code != 200:
-            print(f"❌ Batch request failed: {response.text}")
+            print(f"[ERROR] Batch request failed: {response.text}")
             return {}
             
         data = response.json()
@@ -821,7 +821,7 @@ def get_batch_latest_keypackages(user_ids: List[str], token: str = None) -> dict
                 result[user_id] = None
         return result
     except Exception as e:
-        print(f"❌ Batch get keypackages failed: {e}")
+        print(f"[ERROR] Batch get keypackages failed: {e}")
         return {}
 
 
@@ -854,10 +854,10 @@ def insert_welcome_batch(group_id_b64: str, welcomes: List[dict], token: str) ->
             headers={"Authorization": f"Bearer {token}"}
         )
         response.raise_for_status()
-        #print(f"✅ Batch stored {len(welcomes)} welcomes")
+        #print(f"[OK] Batch stored {len(welcomes)} welcomes")
         return True
     except Exception as e:
-        print(f"❌ Batch store welcomes failed: {e}")
+        print(f"[ERROR] Batch store welcomes failed: {e}")
         return False
 
 def notify_group_update_batch(group_id_b64: str, user_ids: List[str], update_data: dict, token: str) -> dict:
@@ -876,7 +876,7 @@ def notify_group_update_batch(group_id_b64: str, user_ids: List[str], update_dat
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"❌ Batch notification failed: {e}")
+        print(f"[ERROR] Batch notification failed: {e}")
         return {"status": "error", "error": str(e)}
 def notify_group_creators_batch(group_ids_b64: dict, creator_ids: List[str], group_data: dict, token: str) -> dict:
     """Notify group creators about new group in one request"""
@@ -900,5 +900,5 @@ def notify_group_creators_batch(group_ids_b64: dict, creator_ids: List[str], gro
         #response.raise_for_status()
         return responses
     except Exception as e:
-        print(f"❌ Batch notify creators failed: {e}")
+        print(f"[ERROR] Batch notify creators failed: {e}")
         return {"status": "error", "error": str(e)}

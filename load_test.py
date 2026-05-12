@@ -36,7 +36,7 @@ class LoadTest:
     
     def run_concurrent_test(self, group_id_hex, token, num_users=10, messages_per_user=5):
         """Run test with concurrent users"""
-        print(f"\n🚀 Running load test with {num_users} users, {messages_per_user} messages each")
+        print(f"\n Running load test with {num_users} users, {messages_per_user} messages each")
         
         all_latencies = []
         

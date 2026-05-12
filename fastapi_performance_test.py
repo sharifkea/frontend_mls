@@ -20,7 +20,7 @@ class FastAPIPerformanceTest:
     
     def test_get_messages(self, iterations=10):
         """Test FastAPI get messages endpoint"""
-        print(f"\n📩 Testing FastAPI get messages ({iterations} iterations)...")
+        print(f"\n[MSG] Testing FastAPI get messages ({iterations} iterations)...")
         
         times = []
         errors = 0
@@ -61,7 +61,7 @@ class FastAPIPerformanceTest:
     
     def test_get_group_members(self, iterations=10):
         """Test FastAPI get group members endpoint"""
-        print(f"\n👥 Testing FastAPI get group members ({iterations} iterations)...")
+        print(f"\n Testing FastAPI get group members ({iterations} iterations)...")
         
         times = []
         errors = 0
@@ -97,7 +97,7 @@ class FastAPIPerformanceTest:
     
     def test_check_health(self):
         """Test basic connectivity"""
-        print("\n🏥 Checking FastAPI health...")
+        print("\n Checking FastAPI health...")
         
         start = time.perf_counter()
         try:
@@ -120,10 +120,10 @@ class FastAPIPerformanceTest:
     def run_all_tests(self):
         """Run complete test suite"""
         print("=" * 60)
-        print("🚀 FASTAPI PERFORMANCE TEST SUITE")
+        print(" FASTAPI PERFORMANCE TEST SUITE")
         print("=" * 60)
         
-        print(f"\n📋 Configuration:")
+        print(f"\n Configuration:")
         print(f"   Group ID: {self.group_id_hex}")
         print(f"   Token: {self.token[:50]}...")
         
@@ -145,7 +145,7 @@ class FastAPIPerformanceTest:
             json.dump(self.results, f, indent=2)
         
         print("\n" + "=" * 60)
-        print("📊 PERFORMANCE SUMMARY")
+        print("[STATS] PERFORMANCE SUMMARY")
         print("=" * 60)
         
         if 'get_messages' in self.results and 'mean' in self.results['get_messages']:
@@ -157,7 +157,7 @@ class FastAPIPerformanceTest:
             print(f"  Get Members:     {self.results['get_members']['mean']:.2f} ms (avg)")
         
         print("=" * 60)
-        print(f"📁 Report saved: {filename}")
+        print(f" Report saved: {filename}")
 
 
 if __name__ == "__main__":

@@ -10,15 +10,15 @@ cs = CipherSuite.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
 
 def test_tgdh_root_derivation():
     print("=" * 70)
-    print("🧪 TGDH Root Secret Derivation Test")
+    print("[TEST] TGDH Root Secret Derivation Test")
     print("=" * 70)
     
     # Step 1: Create DH parameters
-    print("\n📦 Generating DH parameters...")
+    print("\n Generating DH parameters...")
     parameters = dh.generate_parameters(generator=2, key_size=2048, backend=default_backend())
     
     # Step 2: Create tree and add members one by one
-    print("\n👥 Creating group with Alice, Bob, Charlie...")
+    print("\n Creating group with Alice, Bob, Charlie...")
     tree = BinaryKeyTree()
     
     # Add Alice
@@ -34,28 +34,28 @@ def test_tgdh_root_derivation():
     tree.add_member("Charlie", parameters)
     
     # Refresh keys to compute shared secrets up the tree
-    print("\n🔄 Refreshing tree keys...")
+    print("\n[UPDATE] Refreshing tree keys...")
     tree.refresh_keys(parameters, force=True)
     
     # Step 3: Get the group key from the root
     group_key = tree.get_group_key()
-    print(f"\n🔑 Root group key: {group_key[:32].hex() if group_key else 'None'}...")
+    print(f"\n[KEY] Root group key: {group_key[:32].hex() if group_key else 'None'}...")
     
     # Refresh keys to compute shared secrets up the tree
-    print("\n🔄 Refreshing tree keys...")
+    print("\n[UPDATE] Refreshing tree keys...")
     tree.refresh_keys(parameters, force=True)
     
     # Step 3: Get the group key from the root
     group_key = tree.get_group_key()
-    print(f"\n🔑 Root group key: {group_key[:32].hex() if group_key else 'None'}...")
+    print(f"\n[KEY] Root group key: {group_key[:32].hex() if group_key else 'None'}...")
 
     # Step 4: Derive epoch secret from root key
     if group_key:
         epoch_secret = hashlib.sha256(group_key + b"epoch").digest()
-        print(f"🔐 Epoch secret: {epoch_secret[:32].hex()}...")
+        print(f"[CRYPTO] Epoch secret: {epoch_secret[:32].hex()}...")
     
     # Step 5: Verify each member can compute the same key
-    print("\n🔍 Verifying each member can compute the same key...")
+    print("\n[DEBUG] Verifying each member can compute the same key...")
     
     member_keys = {}
     
@@ -83,26 +83,26 @@ def test_tgdh_root_derivation():
     
     # Step 6: Check consistency
     unique_keys = set([str(k) for k in member_keys.values() if k])
-    print(f"\n📊 Unique epoch secrets found: {len(unique_keys)}")
+    print(f"\n[STATS] Unique epoch secrets found: {len(unique_keys)}")
     
     if len(unique_keys) == 1:
-        print("\n✅ SUCCESS! All members derive the SAME epoch secret!")
+        print("\n[OK] SUCCESS! All members derive the SAME epoch secret!")
         return parameters, True, tree
     else:
-        print("\n❌ FAILURE: Members derived different secrets")
+        print("\n[ERROR] FAILURE: Members derived different secrets")
         return False
 
 
 def test_tgdh_add_member(parameters):
     """Test root key derivation when adding members"""
     print("\n" + "=" * 70)
-    print("🧪 TGDH Add Member Test")
+    print("[TEST] TGDH Add Member Test")
     print("=" * 70)
     
     #parameters = dh.generate_parameters(generator=2, key_size=2048, backend=default_backend())
     
     # Create tree with Alice only
-    print("\n👥 Creating group with Alice...")
+    print("\n Creating group with Alice...")
     tree = BinaryKeyTree()
     tree.add_member("Alice", parameters)
     tree.refresh_keys(parameters, force=True)
@@ -111,21 +111,21 @@ def test_tgdh_add_member(parameters):
     print(f"   Root key after creation: {group_key[:16].hex() if group_key else 'None'}...")
     
     # Add Bob
-    print("\n➕ Adding Bob...")
+    print("\n[ADD] Adding Bob...")
     tree.add_member("Bob", parameters)
     tree.refresh_keys(parameters, force=True)
     group_key = tree.get_group_key()
     print(f"   Root key after adding Bob: {group_key[:16].hex() if group_key else 'None'}...")
     
     # Add Charlie
-    print("\n➕ Adding Charlie...")
+    print("\n[ADD] Adding Charlie...")
     tree.add_member("Charlie", parameters)
     tree.refresh_keys(parameters, force=True)
     group_key = tree.get_group_key()
     print(f"   Root key after adding Charlie: {group_key[:16].hex() if group_key else 'None'}...")
     
     # Verify all members derive same key
-    print("\n🔍 Verifying all members derive same key...")
+    print("\n[DEBUG] Verifying all members derive same key...")
     derived_keys = {}
     
     leaves = list(tree.iter_leaves())
@@ -148,17 +148,17 @@ def test_tgdh_add_member(parameters):
     unique_keys = set([str(k) for k in derived_keys.values() if k])
     
     if len(unique_keys) == 1:
-        print("\n✅ SUCCESS! All members derive the SAME epoch secret!")
+        print("\n[OK] SUCCESS! All members derive the SAME epoch secret!")
         return True
     else:
-        print("\n❌ FAILURE: Different secrets detected")
+        print("\n[ERROR] FAILURE: Different secrets detected")
         return False
 
 
 if __name__ == "__main__":
-    print("\n" + "🔬" * 35)
+    print("\n" + "" * 35)
     print("TGDH ROOT SECRET DERIVATION TESTS")
-    print("🔬" * 35)
+    print("" * 35)
     
     parameters,test1 = test_tgdh_root_derivation()
     test2 = test_tgdh_add_member(parameters)
@@ -166,5 +166,5 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("FINAL SUMMARY")
     print("=" * 70)
-    print(f"   Root derivation test: {'✅ PASSED' if test1 else '❌ FAILED'}")
-    print(f"   Add member test:      {'✅ PASSED' if test2 else '❌ FAILED'}")
+    print(f"   Root derivation test: {'[OK] PASSED' if test1 else '[ERROR] FAILED'}")
+    print(f"   Add member test:      {'[OK] PASSED' if test2 else '[ERROR] FAILED'}")

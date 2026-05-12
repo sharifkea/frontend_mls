@@ -21,10 +21,10 @@ def test_hpke_pair():
         decrypted = cryp_hpke.simple_hpke_open(skR, info, kem_output, ciphertext)
         print(f"Open successful: {decrypted}")
         assert decrypted == plaintext
-        print("✅ HPKE pair works correctly!")
+        print("[OK] HPKE pair works correctly!")
         return True
     except Exception as e:
-        print(f"❌ Open failed: {e}")
+        print(f"[ERROR] Open failed: {e}")
         return False
 if __name__ == "__main__":    
     test_hpke_pair()

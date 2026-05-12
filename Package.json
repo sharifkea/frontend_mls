@@ -1,0 +1,13 @@
+{
+  "name": "mls-messenger-desktop",
+  "version": "1.0.0",
+  "main": "electron_main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.0.0"
+  }
+}

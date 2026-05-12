@@ -34,9 +34,9 @@ def create_100_users(user_number=5000):
             result = future.result()
             if result:
                 users.append(result)
-                print(f"✅ Created: {result['username']}")
+                print(f"[OK] Created: {result['username']}")
     
-    print(f"\n✅ Created {len(users)} users")
+    print(f"\n[OK] Created {len(users)} users")
     return users
 
 if __name__ == "__main__": 

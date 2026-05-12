@@ -28,7 +28,7 @@ def measure_memory_of_operation(operation_name, func, *args, **kwargs):
     
     tracemalloc.stop()
     
-    print(f"\n📊 Operation: {operation_name}")
+    print(f"\n[STATS] Operation: {operation_name}")
     print(f"   Time: {(end_time - start_time)*1000:.2f} ms")
     print(f"   Peak memory: {peak_memory[1] / 1024 / 1024:.2f} MB")
     print(f"   Current memory: {peak_memory[0] / 1024 / 1024:.2f} MB")

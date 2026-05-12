@@ -40,7 +40,7 @@ def create_group_with_init_secret(creator_data: dict) -> dict:
     Simulate group creation with random init_secret
     This is what MLS actually does
     """
-    print(f"\n🏗️ Creating group with {creator_data['username']}...")
+    print(f"\n Creating group with {creator_data['username']}...")
     
     # 1. Create empty tree
     tree = RatchetTree()
@@ -86,7 +86,7 @@ def joiner_derives_epoch_secret(joiner_data: dict, group_state: dict, joiner_sec
     """
     Simulate a member joining and deriving epoch_secret from joiner_secret
     """
-    print(f"\n🔐 {joiner_data['username']} joining group...")
+    print(f"\n[CRYPTO] {joiner_data['username']} joining group...")
     
     # 1. Joiner receives joiner_secret via Welcome (HPKE encrypted in real world)
     print(f"   Received joiner_secret: {joiner_secret[:16].hex()}...")
@@ -101,7 +101,7 @@ def joiner_derives_epoch_secret(joiner_data: dict, group_state: dict, joiner_sec
     
     # 4. Verify it matches the group's epoch_secret
     matches = epoch_secret == group_state['epoch_secret']
-    print(f"   Matches group epoch_secret: {'✅ YES' if matches else '❌ NO'}")
+    print(f"   Matches group epoch_secret: {'[OK] YES' if matches else '[ERROR] NO'}")
     
     # 5. Build tree structure (for member list, NOT for key derivation!)
     # Add joiner's leaf to the tree
@@ -131,10 +131,10 @@ def joiner_derives_epoch_secret(joiner_data: dict, group_state: dict, joiner_sec
 
 
 def creator_adds_member(creator_data, group_state, new_member_data):
-    # ❌ WRONG - random joiner_secret
+    # [ERROR] WRONG - random joiner_secret
     # joiner_secret = secrets.token_bytes(32)
     
-    # ✅ CORRECT - derive joiner_secret from current epoch_secret
+    # [OK] CORRECT - derive joiner_secret from current epoch_secret
     current_epoch_secret = group_state['epoch_secret']
     joiner_secret = DeriveSecret(cs, current_epoch_secret, b"joiner")
     
@@ -151,11 +151,11 @@ def creator_adds_member(creator_data, group_state, new_member_data):
 def test_init_secret_derivation():
     """Test that all members can derive the same epoch_secret using init_secret"""
     print("=" * 80)
-    print("🧪 MLS init_secret-based Root Derivation Test")
+    print("[TEST] MLS init_secret-based Root Derivation Test")
     print("=" * 80)
     
     # Step 1: Generate key packages for 3 users
-    print("\n📦 Generating key packages...")
+    print("\n Generating key packages...")
     users = ["alice", "bob", "charlie"]
     members_data = {}
     
@@ -164,11 +164,11 @@ def test_init_secret_derivation():
     
     # Step 2: Alice creates group with random init_secret
     group_state = create_group_with_init_secret(members_data["alice"])
-    print(f"\n📊 Group created with epoch_secret: {group_state['epoch_secret'][:16].hex()}...")
+    print(f"\n[STATS] Group created with epoch_secret: {group_state['epoch_secret'][:16].hex()}...")
     
     # Step 3: Bob joins - receives joiner_secret from Alice
     print("\n" + "=" * 80)
-    print("🔄 FIRST JOIN: Bob joins the group")
+    print("[UPDATE] FIRST JOIN: Bob joins the group")
     print("=" * 80)
     
     # Alice generates joiner_secret for Bob
@@ -181,7 +181,7 @@ def test_init_secret_derivation():
     
     # Step 4: Charlie joins
     print("\n" + "=" * 80)
-    print("🔄 SECOND JOIN: Charlie joins the group")
+    print("[UPDATE] SECOND JOIN: Charlie joins the group")
     print("=" * 80)
     
     joiner_secret_charlie, group_state = creator_adds_member(
@@ -192,7 +192,7 @@ def test_init_secret_derivation():
     
     # Step 5: Verify all members have the SAME epoch_secret
     print("\n" + "=" * 80)
-    print("📊 FINAL VERIFICATION")
+    print("[STATS] FINAL VERIFICATION")
     print("=" * 80)
     
     all_epoch_secrets = {
@@ -209,24 +209,24 @@ def test_init_secret_derivation():
             first_secret = secret
         elif secret != first_secret:
             all_match = False
-            print(f"      ❌ MISMATCH for {name}!")
+            print(f"      [ERROR] MISMATCH for {name}!")
     
     print("\n" + "=" * 80)
     if all_match:
-        print("✅ SUCCESS! All members derived the SAME epoch_secret!")
+        print("[OK] SUCCESS! All members derived the SAME epoch_secret!")
         print(f"   Shared epoch_secret: {first_secret[:32].hex()}")
-        print("\n🔐 Security property: epoch_secret derived from init_secret/joiner_secret")
+        print("\n[CRYPTO] Security property: epoch_secret derived from init_secret/joiner_secret")
         print("   NOT from tree hash! DB compromise cannot reveal this secret.")
     else:
-        print("❌ FAILURE: Members derived different epoch_secrets")
+        print("[ERROR] FAILURE: Members derived different epoch_secrets")
     
     print("\n" + "=" * 80)
     
     # Additional security check
-    print("\n🔒 SECURITY VERIFICATION:")
+    print("\n SECURITY VERIFICATION:")
     print("   tree.hash():", group_state['tree'].hash(cs)[:16].hex())
     print("   epoch_secret:", first_secret[:16].hex() if first_secret else "None")
-    print("   Are they different?", "✅ YES" if first_secret and group_state['tree'].hash(cs)[:16].hex() != first_secret[:16].hex() else "⚠️ WARNING")
+    print("   Are they different?", "[OK] YES" if first_secret and group_state['tree'].hash(cs)[:16].hex() != first_secret[:16].hex() else "[WARNING] WARNING")
     
     return all_match
 
@@ -234,7 +234,7 @@ def test_init_secret_derivation():
 def test_vulnerable_tree_hash_approach():
     """Demonstrate why tree.hash() approach is vulnerable"""
     print("\n" + "=" * 80)
-    print("⚠️ DEMONSTRATION: Vulnerable tree.hash() approach")
+    print("[WARNING] DEMONSTRATION: Vulnerable tree.hash() approach")
     print("=" * 80)
     
     # Generate key packages
@@ -260,14 +260,14 @@ def test_vulnerable_tree_hash_approach():
     
     print(f"\n   tree.hash(): {root_secret[:16].hex()}...")
     print(f"   Derived epoch (VULNERABLE): {vulnerable_epoch[:16].hex()}...")
-    print("\n   ⚠️ ANYONE with database access can compute this!")
-    print("   ❌ This is why tree.hash() should NOT be used for key derivation.\n")
+    print("\n   [WARNING] ANYONE with database access can compute this!")
+    print("   [ERROR] This is why tree.hash() should NOT be used for key derivation.\n")
 
 
 if __name__ == "__main__":
-    print("🔬" * 20)
+    print("" * 20)
     print("MLS INIT_SECRET DERIVATION TESTS")
-    print("🔬" * 20)
+    print("" * 20)
     
     # Show the vulnerable approach
     test_vulnerable_tree_hash_approach()
@@ -279,9 +279,9 @@ if __name__ == "__main__":
     print("FINAL RECOMMENDATION")
     print("=" * 80)
     if success:
-        print("✅ Use init_secret/joiner_secret for epoch secret derivation.")
-        print("❌ Remove all calls to derive_epoch_secret_from_tree().")
-        print("✅ Store epoch_secret only in memory (user_crypto_store).")
-        print("✅ Never store epoch_secret in database.")
+        print("[OK] Use init_secret/joiner_secret for epoch secret derivation.")
+        print("[ERROR] Remove all calls to derive_epoch_secret_from_tree().")
+        print("[OK] Store epoch_secret only in memory (user_crypto_store).")
+        print("[OK] Never store epoch_secret in database.")
     else:
-        print("⚠️ Test failed - need to debug implementation.")
+        print("[WARNING] Test failed - need to debug implementation.")

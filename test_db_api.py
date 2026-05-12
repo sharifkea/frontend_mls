@@ -368,10 +368,10 @@ def get_user_by_username(username: str, token: str = None):
         users = response_data.get('users', [])
         if users:
             user = users[0]  # Take the first match
-            print(f"✅ Found user: {user['username']} (ID: {user['user_id']})")
+            print(f"[OK] Found user: {user['username']} (ID: {user['user_id']})")
             return user
         else:
-            print(f"❌ No user found with username: {username}")
+            print(f"[ERROR] No user found with username: {username}")
             return None
             
     except Exception as e:
@@ -399,7 +399,7 @@ def get_user_by_id(user_id: str, token: str = None):
         )
         r.raise_for_status()
         user_data = r.json()
-        print(f"✅ Found user: {user_data['username']}")
+        print(f"[OK] Found user: {user_data['username']}")
         return user_data
         
     except Exception as e:
@@ -429,7 +429,7 @@ def search_users(search_term: str, token: str = None):
         response_data = r.json()
         
         users = response_data.get('users', [])
-        print(f"✅ Found {len(users)} matching users")
+        print(f"[OK] Found {len(users)} matching users")
         for user in users:
             print(f"   - {user['username']} (ID: {user['user_id']})")
         return users

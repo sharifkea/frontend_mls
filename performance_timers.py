@@ -15,7 +15,7 @@ class PerformanceTimer:
     def time_encryption(group_id_b64, message_text, token, user_id, group_state, iterations=10):
         """Measure encryption time without modifying encrypt_and_send_message"""
         print(f"\n{'='*60}")
-        print(f"🔐 MEASURING ENCRYPTION PERFORMANCE ({iterations} iterations)")
+        print(f"[CRYPTO] MEASURING ENCRYPTION PERFORMANCE ({iterations} iterations)")
         print(f"{'='*60}")
         
         times = []
@@ -31,7 +31,7 @@ class PerformanceTimer:
             times.append(elapsed_ms)
             results.append(result)
             
-            status = "✅" if result.get('success') else "❌"
+            status = "[OK]" if result.get('success') else "[ERROR]"
             print(f"   Iteration {i+1}: {elapsed_ms:.2f}ms {status}")
         
         if times:
@@ -50,7 +50,7 @@ class PerformanceTimer:
     def time_decryption(msg_data, group_state, user_id, iterations=10):
         """Measure decryption time without modifying decrypt_message"""
         print(f"\n{'='*60}")
-        print(f"🔓 MEASURING DECRYPTION PERFORMANCE ({iterations} iterations)")
+        print(f"[UNLOCK] MEASURING DECRYPTION PERFORMANCE ({iterations} iterations)")
         print(f"{'='*60}")
         
         times = []
@@ -81,7 +81,7 @@ class PerformanceTimer:
     def time_tree_build(group_id_b64, token, iterations=5):
         """Measure tree rebuild time"""
         print(f"\n{'='*60}")
-        print(f"🌲 MEASURING TREE REBUILD PERFORMANCE ({iterations} iterations)")
+        print(f"[TREE] MEASURING TREE REBUILD PERFORMANCE ({iterations} iterations)")
         print(f"{'='*60}")
         
         times = []
@@ -110,7 +110,7 @@ class PerformanceTimer:
     def time_epoch_derivation(tree, cipher_suite, final_secret, iterations=100):
         """Measure epoch secret derivation time"""
         print(f"\n{'='*60}")
-        print(f"🔑 MEASURING EPOCH DERIVATION ({iterations} iterations)")
+        print(f"[KEY] MEASURING EPOCH DERIVATION ({iterations} iterations)")
         print(f"{'='*60}")
         
         times = []
@@ -147,7 +147,7 @@ class APIPerformanceTest:
         import requests
         
         print(f"\n{'='*60}")
-        print(f"📩 MEASURING GET MESSAGES API ({iterations} iterations)")
+        print(f"[MSG] MEASURING GET MESSAGES API ({iterations} iterations)")
         print(f"{'='*60}")
         
         times = []
@@ -164,7 +164,7 @@ class APIPerformanceTest:
             elapsed_ms = (end - start) * 1000
             times.append(elapsed_ms)
             
-            status = "✅" if response.status_code == 200 else "❌"
+            status = "[OK]" if response.status_code == 200 else "[ERROR]"
             print(f"   Iteration {i+1}: {elapsed_ms:.2f}ms {status}")
         
         if times:
@@ -181,15 +181,15 @@ class APIPerformanceTest:
 def run_performance_tests():
     """Run all performance tests"""
     print("\n" + "=" * 70)
-    print("🚀 MLS PERFORMANCE TEST SUITE")
+    print(" MLS PERFORMANCE TEST SUITE")
     print("=" * 70)
-    print("\n⚠️  Note: This test does not modify any working code.")
+    print("\n[WARNING]  Note: This test does not modify any working code.")
     print("   It only measures performance of existing functions.\n")
     
     results = {}
     
     # You need to provide these values from your actual session
-    print("📋 Please provide the following from your browser console:")
+    print(" Please provide the following from your browser console:")
     print("   - user_id")
     print("   - token")
     print("   - group_id_hex")

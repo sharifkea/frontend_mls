@@ -318,14 +318,14 @@ def add_member(group, new_member_id: str, committer_priv_bytes: bytes, committer
     
     # Print summary
     print(f"\n{'='*50}")
-    print(f"⏱️ ADD MEMBER TIMINGS for {new_member_id}")
+    print(f"[CLOCK] ADD MEMBER TIMINGS for {new_member_id}")
     print(f"{'='*50}")
     for key, value in timings.items():
         print(f"   {key}: {value:.3f}s")
     print(f"   TOTAL: {total_time:.3f}s")
     print(f"{'='*50}\n")
 
-    print(f"✅ Welcome created successfully")
+    print(f"[OK] Welcome created successfully")
     print(f"   New epoch: {updated_group['epoch']}, New leaf index: {new_leaf_index}")
     print(f"   Tree has {len(tree.leaves)} leaves, {tree.nodes} nodes")
 
@@ -337,7 +337,7 @@ def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite, 
         raise ValueError("No tree provided")
     
     print(f"\n{'='*60}")
-    print(f"🌲 DERIVING EPOCH SECRET FROM TREE")
+    print(f"[TREE] DERIVING EPOCH SECRET FROM TREE")
     print(f"{'='*60}")
     print(f"   Tree leaves: {len(tree.leaves)}")
     print(f"   Tree nodes: {tree.nodes}")
@@ -350,7 +350,7 @@ def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite, 
         print(f"   Original tree hash: ERROR - {e}")
     
     # ===== FORCE leaf indices for ALL leaves =====
-    print(f"\n📊 Fixing leaf indices...")
+    print(f"\n[STATS] Fixing leaf indices...")
     for i, leaf in enumerate(tree.leaves):
         if isinstance(leaf, LeafNode):
             if not hasattr(leaf, '_leaf_index') or leaf._leaf_index is None:
@@ -444,7 +444,7 @@ def repair_tree_indices(tree: RatchetTree, members_data: list = None) -> Ratchet
                 leaf._leaf_index = i
                 print(f"  Emergency fix: leaf[{i}]._leaf_index = {i}")
     
-    print(f"✅ Tree repair completed")
+    print(f"[OK] Tree repair completed")
     return tree
 
 def get_tree_hash(tree: RatchetTree, cipher_suite: CipherSuite) -> str:
@@ -586,7 +586,7 @@ def add_member_to_tree_only(group, new_member_id: str, committer_priv_bytes: byt
 
     group.update(updated_group)
 
-    print(f"   ✅ Tree updated for {new_member_id}")
+    print(f"   [OK] Tree updated for {new_member_id}")
     print(f"      New epoch: {updated_group['epoch']}, New leaf index: {new_leaf_index}")
     print(f"      Tree now has {len(tree.leaves)} leaves, {tree.nodes} nodes")
 
@@ -624,7 +624,7 @@ def create_welcome_for_member(group, member_id: str, committer_priv_bytes: bytes
                 break
     
     if target_leaf_index is None:
-        print(f"⚠️ Member {member_id} not found in tree, using next available index")
+        print(f"[WARNING] Member {member_id} not found in tree, using next available index")
         target_leaf_index = len(group["tree"].leaves) - 1
 
     print(f"   Member will be at leaf index: {target_leaf_index}")
@@ -756,7 +756,7 @@ def create_welcome_for_member(group, member_id: str, committer_priv_bytes: bytes
     )
     welcome_bytes = welcome_message.serialize()
 
-    print(f"✅ Welcome created successfully for {member_id}")
+    print(f"[OK] Welcome created successfully for {member_id}")
     print(f"   Current epoch: {current_epoch}")
     print(f"   Tree has {len(tree.leaves)} leaves, {tree.nodes} nodes")
     print(f"   Welcome size: {len(welcome_bytes)} bytes")

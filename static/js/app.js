@@ -44,7 +44,7 @@ function base64ToHex(base64) {
 
 
 async function initWebSocket() {
-    console.log('🔍 initWebSocket called');
+    console.log('[DEBUG] initWebSocket called');
     
     // Get session data
     let userId = sessionStorage.getItem('userId');
@@ -60,11 +60,11 @@ async function initWebSocket() {
         }
     }
     
-    console.log('🔍 userId:', userId);
-    console.log('🔍 token exists:', !!token);
+    console.log('[DEBUG] userId:', userId);
+    console.log('[DEBUG] token exists:', !!token);
     
     if (!userId || !token) {
-        console.log('❌ No valid session, WebSocket not initialized');
+        console.log('[ERROR] No valid session, WebSocket not initialized');
         return;
     }
     
@@ -78,7 +78,7 @@ async function initWebSocket() {
     ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
-        console.log('✅ WebSocket connected to FastAPI');
+        console.log('[OK] WebSocket connected to FastAPI');
         if (wsReconnectInterval) {
             clearInterval(wsReconnectInterval);
             wsReconnectInterval = null;
@@ -92,7 +92,7 @@ async function initWebSocket() {
     ws.onmessage = async (event) => {
         try {
             const data = JSON.parse(event.data);
-            console.log('📨 WebSocket message type:', data.type);
+            console.log('[WELCOME] WebSocket message type:', data.type);
             
             switch (data.type) {
                 case 'new_message':
@@ -104,7 +104,7 @@ async function initWebSocket() {
                     break;
                 
                 case 'refresh_messages':
-                    console.log(`🔄 Refresh messages for group ${data.group_id_b64}`);
+                    console.log(`[UPDATE] Refresh messages for group ${data.group_id_b64}`);
                     if (window.selectedGroup && window.selectedGroup.group_id === data.group_id_b64) {
                         // Reload messages for this group
                         loadMessages(window.selectedGroup.group_id_hex);
@@ -112,7 +112,7 @@ async function initWebSocket() {
                     break;
                     
                 case 'message_sent':
-                    console.log('✅ Message delivery confirmed by server');
+                    console.log('[OK] Message delivery confirmed by server');
                     // Optional: show a small checkmark next to the message
                     break;
                     
@@ -139,7 +139,7 @@ async function initWebSocket() {
                     showNotification(`Join request from ${data.requester_username}`, 'info');
                     
                     if (confirm(`User ${data.requester_username} wants to join group "${data.group_name}". Accept?`)) {
-                        console.log('✅ User accepted, sending add-member request...');
+                        console.log('[OK] User accepted, sending add-member request...');
                         
                         const session = await loadSession();
                         console.log('Session loaded:', session?.userId);
@@ -177,13 +177,13 @@ async function initWebSocket() {
                             showToast(`Error: ${error.message}`, 'error');
                         }
                     } else {
-                        console.log('❌ User rejected the join request');
+                        console.log('[ERROR] User rejected the join request');
                     }
                     break;
 
 
                 case 'group_update':
-                    console.log(`🔄 Group ${data.group_id} updated - new epoch: ${data.update_data.new_epoch}`);
+                    console.log(`[UPDATE] Group ${data.group_id} updated - new epoch: ${data.update_data.new_epoch}`);
                     console.log(`   New member: ${data.update_data.new_member.username}`);
                     
                     const session = await loadSession();
@@ -206,7 +206,7 @@ async function initWebSocket() {
                         
                         const result = await response.json();
                         if (result.success) {
-                            console.log('✅ Group state updated successfully');
+                            console.log('[OK] Group state updated successfully');
                             // Refresh groups list and messages
                             loadUserGroups(session.userId, session.token);
                             if (window.selectedGroup && window.selectedGroup.group_id === data.group_id) {
@@ -330,7 +330,7 @@ async function saveSession(userId, token, username) {
         return;
     }
     
-    console.log('💾 Saving session for user:', userId);
+    console.log(' Saving session for user:', userId);
     
     // 1. Save to sessionStorage (immediate, synchronous)
     sessionStorage.setItem('userId', userId);
@@ -350,7 +350,7 @@ async function saveSession(userId, token, username) {
         timestamp: Date.now()
     });
     
-    console.log('✅ Session saved to both storages');
+    console.log('[OK] Session saved to both storages');
 }
 
 async function loadSession() {
@@ -433,7 +433,7 @@ async function saveGroupsToDB(userId, groups) {
             }
         });
         
-        console.log(`✅ Saved ${groups.length} groups to IndexedDB`);
+        console.log(`[OK] Saved ${groups.length} groups to IndexedDB`);
     } catch (error) {
         console.error('Failed to save groups to IndexedDB:', error);
     }
@@ -614,15 +614,15 @@ async function loadUserGroups(userId, token) {
             groups = data;
         }
         
-        console.log(`✅ Found ${groups.length} groups`);
+        console.log(`[OK] Found ${groups.length} groups`);
         displayGroups(groups);
         await saveGroupsToDB(userId, groups);
         
     } catch (error) {
-        console.error('❌ Failed to load groups:', error);
+        console.error('[ERROR] Failed to load groups:', error);
         const offlineGroups = await loadGroupsFromDB(userId);
         if (offlineGroups && offlineGroups.length > 0) {
-            console.log(`📦 Loaded ${offlineGroups.length} groups from IndexedDB`);
+            console.log(` Loaded ${offlineGroups.length} groups from IndexedDB`);
             displayGroups(offlineGroups);
         } else {
             displayGroups([]);
@@ -707,7 +707,7 @@ function selectGroup(group) {
     document.getElementById('message-text').disabled = false;
     document.getElementById('send-btn').disabled = false;
     
-    // ✅ CLEAR the message container when switching groups
+    // [OK] CLEAR the message container when switching groups
     const container = document.getElementById('messages-container');
     if (container) {
         container.innerHTML = '<div class="no-messages">Loading messages...</div>';
@@ -738,7 +738,7 @@ async function loadMessages(groupIdHex) {
     }
     
     try {
-        console.log(`📩 Fetching new messages for group: ${groupIdHex}`);
+        console.log(`[MSG] Fetching new messages for group: ${groupIdHex}`);
         
         const response = await fetch('/api/messages/get', {
             method: 'POST',
@@ -760,7 +760,7 @@ async function loadMessages(groupIdHex) {
         if (data.success) {
             // Only update if we're still on the same group
             if (window.selectedGroup && window.selectedGroup.group_id_hex === groupIdHex) {
-                // ✅ This will APPEND new messages, not replace all
+                // [OK] This will APPEND new messages, not replace all
                 displayMessages(data.messages);
             }
         } else {
@@ -819,17 +819,17 @@ function displayMessages(messages) {
     const container = document.getElementById('messages-container');
     if (!container) return;
     
-    console.log('📊 displayMessages called with', messages.length, 'messages');
-    console.log('📊 Current container has', container.children.length, 'children');
+    console.log('[STATS] displayMessages called with', messages.length, 'messages');
+    console.log('[STATS] Current container has', container.children.length, 'children');
     
     // If this is the first load (container is empty or has "no messages"), clear it
     const isEmpty = container.children.length === 0 || 
                     (container.children.length === 1 && container.querySelector('.no-messages'));
     
-    console.log('📊 isEmpty:', isEmpty);
+    console.log('[STATS] isEmpty:', isEmpty);
     
     if (isEmpty) {
-        console.log('📊 Clearing container for first load');
+        console.log('[STATS] Clearing container for first load');
         container.innerHTML = '';
     }
     
@@ -876,7 +876,7 @@ function displayMessages(messages) {
         addedCount++;
     });
     
-    console.log('📊 Added', addedCount, 'new messages');
+    console.log('[STATS] Added', addedCount, 'new messages');
     
     // Scroll to bottom
     container.scrollTop = container.scrollHeight;
@@ -953,7 +953,7 @@ async function checkForPendingWelcomes() {
     }
     
     try {
-        console.log('📨 Checking for pending welcome messages...');
+        console.log('[WELCOME] Checking for pending welcome messages...');
         
         const response = await fetch('/api/welcomes/pending', {
             headers: { 'Authorization': `Bearer ${session.token}` }
@@ -988,7 +988,7 @@ async function processWelcome(welcome, token) {
     isProcessingWelcome = true;
     
     try {
-        console.log(`🔐 Processing welcome for group: ${welcome.group_id}`);
+        console.log(`[CRYPTO] Processing welcome for group: ${welcome.group_id}`);
         
         const response = await fetch('/api/welcomes/process', {
             method: 'POST',
@@ -1006,7 +1006,7 @@ async function processWelcome(welcome, token) {
         const data = await response.json();
         
         if (data.success) {
-            console.log(`✅ Successfully joined group: ${data.group_id}`);
+            console.log(`[OK] Successfully joined group: ${data.group_id}`);
             showToast(`Joined new group!`, 'success');
             
             const session = await loadSession();
@@ -1027,7 +1027,7 @@ async function processWelcome(welcome, token) {
         
         if (pendingWelcomeQueue.length > 0) {
             const next = pendingWelcomeQueue.shift();
-            console.log(`🔄 Processing next queued welcome`);
+            console.log(`[UPDATE] Processing next queued welcome`);
             processWelcome(next.welcome, next.token);
         }
     }
@@ -1067,7 +1067,7 @@ async function createGroupWithOnline() {
         if (data.error) {
             alert('Failed to create group: ' + data.error);
         } else {
-            alert(`✅ Group "${groupName}" created with ${data.member_count} members!`);
+            alert(`[OK] Group "${groupName}" created with ${data.member_count} members!`);
             await loadUserGroups(session.user_id, session.token);
         }
     } catch (error) {
@@ -1254,7 +1254,7 @@ async function sendJoinRequest(group, token) {
 }
 
 async function handleIncomingMessage(data) {
-    console.log(`📩 Real-time message from ${data.sender_username}`);
+    console.log(`[MSG] Real-time message from ${data.sender_username}`);
     
     if (window.selectedGroup && window.selectedGroup.group_id === data.group_id_b64) {
         const session = await loadSession();
@@ -1367,6 +1367,6 @@ function appendMessageToUI(message) {
     container.appendChild(messageDiv);
     container.scrollTop = container.scrollHeight;
     
-    console.log(`✅ Appended message from ${message.sender_username}`);
+    console.log(`[OK] Appended message from ${message.sender_username}`);
 }
 

@@ -103,7 +103,7 @@ class PerformanceTestSuite:
             print(f"  Load Test (avg):      {self.results['load'].get('avg_latency', 0):.2f} ms")
             print(f"  Load Test (p95):      {self.results['load'].get('p95_latency', 0):.2f} ms")
         print("=" * 60)
-        print(f"📊 Report saved to: {filename}")
+        print(f"[STATS] Report saved to: {filename}")
 
 
 # ============ MAIN EXECUTION ============
@@ -115,11 +115,11 @@ if __name__ == "__main__":
     print("=" * 60)
     
     # You need to provide these values
-    print("\n⚠️  Before running, you need to:")
+    print("\n[WARNING]  Before running, you need to:")
     print("   1. Login to the application")
     print("   2. Have a group created")
     print("   3. Copy your token, user_id, and group info")
-    print("\n📝 Example:")
+    print("\n Example:")
     print("   python run_performance_tests.py <token> <user_id> <group_id_hex> <group_id_b64>")
     
     if len(sys.argv) >= 5:
@@ -131,7 +131,7 @@ if __name__ == "__main__":
         runner = PerformanceTestSuite(token, user_id, group_id_hex, group_id_b64)
         runner.run_all_tests()
     else:
-        print("\n❌ Missing arguments. Please provide:")
+        print("\n[ERROR] Missing arguments. Please provide:")
         print("   token, user_id, group_id_hex, group_id_b64")
         
         # Interactive mode
@@ -145,4 +145,4 @@ if __name__ == "__main__":
             runner = PerformanceTestSuite(token, user_id, group_id_hex, group_id_b64)
             runner.run_all_tests()
         else:
-            print("❌ All fields are required!")
+            print("[ERROR] All fields are required!")

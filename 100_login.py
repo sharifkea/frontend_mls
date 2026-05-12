@@ -15,7 +15,7 @@ def login_user(username, password):
         )
         
         if login_response.status_code != 200:
-            print(f"❌ Login failed for {username}: {login_response.status_code}")
+            print(f"[ERROR] Login failed for {username}: {login_response.status_code}")
             return None
         
         data = login_response.json()
@@ -26,11 +26,11 @@ def login_user(username, password):
                 "username": username
             }
         else:
-            print(f"❌ Login failed for {username}: {data.get('error')}")
+            print(f"[ERROR] Login failed for {username}: {data.get('error')}")
             return None
             
     except Exception as e:
-        print(f"❌ Error logging in {username}: {str(e)}")
+        print(f"[ERROR] Error logging in {username}: {str(e)}")
         return None
 
 def login_100_users(number_of_users):
@@ -38,7 +38,7 @@ def login_100_users(number_of_users):
     successful = 0
     failed = 0
     
-    print("🚀 Starting login process for 100 users...")
+    print(" Starting login process for 100 users...")
     start_time = time.time()
     
     # Use ThreadPoolExecutor for concurrent logins (be careful with server load)
@@ -55,17 +55,17 @@ def login_100_users(number_of_users):
             if result:
                 users.append(result)
                 successful += 1
-                print(f"✅ [{successful}/{number_of_users}] Logged in: {result['username']}")
+                print(f"[OK] [{successful}/{number_of_users}] Logged in: {result['username']}")
             else:
                 failed += 1
-                print(f"❌ Failed: {futures[future]}")
+                print(f"[ERROR] Failed: {futures[future]}")
     
     elapsed = time.time() - start_time
-    print(f"\n📊 Summary:")
-    print(f"   ✅ Successful logins: {successful}")
-    print(f"   ❌ Failed logins: {failed}")
-    print(f"   ⏱️  Time taken: {elapsed:.2f} seconds")
-    print(f"   📈 Rate: {successful/elapsed:.2f} users/second")
+    print(f"\n[STATS] Summary:")
+    print(f"   [OK] Successful logins: {successful}")
+    print(f"   [ERROR] Failed logins: {failed}")
+    print(f"   [CLOCK]  Time taken: {elapsed:.2f} seconds")
+    print(f"   Rate: {successful/elapsed:.2f} users/second")
     
     return users
 
@@ -74,7 +74,7 @@ def check_active_sessions():
     response = requests.get(f"{FLASK_URL}/api/debug/active-sessions")
     if response.status_code == 200:
         data = response.json()
-        print(f"🔍 Active sessions on server: {data.get('count', 0)}")
+        print(f"[DEBUG] Active sessions on server: {data.get('count', 0)}")
         return data
     return None
 
@@ -86,9 +86,9 @@ if __name__ == "__main__":
     # First, check server status
     try:
         resp = requests.get(f"{FLASK_URL}/api/debug/active-sessions")
-        print(f"✅ Flask server is running at {FLASK_URL}")
+        print(f"[OK] Flask server is running at {FLASK_URL}")
     except:
-        print(f"❌ Cannot reach Flask server at {FLASK_URL}")
+        print(f"[ERROR] Cannot reach Flask server at {FLASK_URL}")
         print("   Make sure your Flask app is running!")
         exit(1)
     
@@ -103,4 +103,4 @@ if __name__ == "__main__":
     import json
     with open("logged_in_users.json", "w") as f:
         json.dump(users, f, indent=2)
-    print(f"\n💾 Saved {len(users)} user sessions to logged_in_users.json")
+    print(f"\n Saved {len(users)} user sessions to logged_in_users.json")

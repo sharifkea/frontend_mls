@@ -32,7 +32,7 @@ def create_welcome_simple(group_id_b64: str, new_member_id: str,
     Create a simple Welcome message containing ONLY the joiner_secret.
     No tree in the Welcome - tree is built from database.
     """
-    #print(f"\n📨 Creating simple Welcome for {new_member_id}")
+    #print(f"\n[WELCOME] Creating simple Welcome for {new_member_id}")
     
     # 1. Fetch new member's KeyPackage
     if kp_bytes is None:
@@ -90,7 +90,7 @@ def process_welcome_simple(welcome_b64: str, private_key: bytes) -> bytes:
     """
     Process a simple Welcome message to extract joiner_secret.
     """
-    print(f"\n🔓 Processing simple Welcome")
+    print(f"\n[UNLOCK] Processing simple Welcome")
     
     welcome_bytes = base64.b64decode(welcome_b64)
     welcome_bytearray = bytearray(welcome_bytes)
@@ -123,7 +123,7 @@ def add_member_to_tree_optimized(group, new_member_id: str, committer_priv_bytes
     """
     Optimized version - reduces tree operations
     """
-    #print(f"\n➕ Adding {new_member_id} to tree")
+    #print(f"\n[ADD] Adding {new_member_id} to tree")
     
     # Fetch new member's KeyPackage
     if new_kp_bytes is None:
@@ -221,7 +221,7 @@ def add_member_to_tree(tree, new_leaf_index: int, new_kp_bytes: bytes) -> tuple[
     """
     Optimized version - reduces tree operations
     """
-    #print(f"\n➕ Adding {new_member_id} to tree")
+    #print(f"\n[ADD] Adding {new_member_id} to tree")
     
     new_kp = KeyPackage.deserialize(bytearray(new_kp_bytes))
     new_leaf = new_kp.content.leaf_node

@@ -24,7 +24,7 @@ HTML_TEMPLATE = '''
     </style>
 </head>
 <body>
-    <h1>📊 MLS Performance Dashboard</h1>
+    <h1>[STATS] MLS Performance Dashboard</h1>
     
     <h2>Latest Test Results</h2>
     <table>

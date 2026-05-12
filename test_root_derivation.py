@@ -33,7 +33,7 @@ def generate_key_package(username: str):
 
 def build_tree_for_user(members_data: list, my_username: str) -> RatchetTree:
     """Build a tree from the perspective of one specific user"""
-    print(f"\n🌲 Building tree for {my_username}...")
+    print(f"\n[TREE] Building tree for {my_username}...")
     
     tree = RatchetTree()
     n = len(members_data)
@@ -113,7 +113,7 @@ def derive_root_secret(member_data: dict, tree: RatchetTree, cipher_suite, my_in
 
 def test_root_derivation():
     print("="*100)
-    print("🧪 TreeKEM Root Secret Derivation - Per User Tree Test")
+    print("[TEST] TreeKEM Root Secret Derivation - Per User Tree Test")
     print("="*100)
 
     users = ["alice", "bob", "charlie"]
@@ -143,9 +143,9 @@ def test_root_derivation():
             same = False
 
     if same:
-        print("\n✅ SUCCESS! All three users derived the **same** root secret!")
+        print("\n[OK] SUCCESS! All three users derived the **same** root secret!")
     else:
-        print("\n❌ Still different — but now each user has their correct leaf index.")
+        print("\n[ERROR] Still different — but now each user has their correct leaf index.")
 
     return same
 

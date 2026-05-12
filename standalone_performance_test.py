@@ -24,7 +24,7 @@ class StandalonePerformanceTest:
     
     def test_encryption_send(self, iterations=10):
         """Test encrypt and send message performance"""
-        print(f"\n🔐 Testing encryption & send ({iterations} iterations)...")
+        print(f"\n[CRYPTO] Testing encryption & send ({iterations} iterations)...")
         
         times = []
         errors = 0
@@ -67,7 +67,7 @@ class StandalonePerformanceTest:
     
     def test_get_messages(self, iterations=10):
         """Test get messages performance"""
-        print(f"\n📩 Testing get messages ({iterations} iterations)...")
+        print(f"\n[MSG] Testing get messages ({iterations} iterations)...")
         
         times = []
         errors = 0
@@ -104,7 +104,7 @@ class StandalonePerformanceTest:
     
     def test_fastapi_messages(self, iterations=10):
         """Test direct FastAPI messages endpoint"""
-        print(f"\n🗄️ Testing FastAPI messages endpoint ({iterations} iterations)...")
+        print(f"\n Testing FastAPI messages endpoint ({iterations} iterations)...")
         
         times = []
         errors = 0
@@ -140,7 +140,7 @@ class StandalonePerformanceTest:
     
     def test_load(self, num_users=5, messages_per_user=3):
         """Simple load test with concurrent requests"""
-        print(f"\n🚦 Running load test: {num_users} users × {messages_per_user} messages = {num_users * messages_per_user} total requests")
+        print(f"\n Running load test: {num_users} users  {messages_per_user} messages = {num_users * messages_per_user} total requests")
         
         import concurrent.futures
         
@@ -194,7 +194,7 @@ class StandalonePerformanceTest:
     
     def test_websocket_latency(self, iterations=10):
         """Test WebSocket latency"""
-        print(f"\n🔌 Testing WebSocket latency ({iterations} iterations)...")
+        print(f"\n Testing WebSocket latency ({iterations} iterations)...")
         
         import asyncio
         import websockets
@@ -233,11 +233,11 @@ class StandalonePerformanceTest:
     def run_all_tests(self):
         """Run complete test suite"""
         print("=" * 70)
-        print("📊 STANDALONE PERFORMANCE TEST SUITE")
+        print("[STATS] STANDALONE PERFORMANCE TEST SUITE")
         print("=" * 70)
         
         # Test 1: Basic connectivity
-        print("\n✅ Checking connectivity...")
+        print("\n[OK] Checking connectivity...")
         try:
             resp = requests.get(f"{self.flask_url}/api/online-users", headers=self.get_headers())
             if resp.status_code == 200:
@@ -275,29 +275,29 @@ class StandalonePerformanceTest:
             json.dump(self.results, f, indent=2)
         
         print("\n" + "=" * 70)
-        print("📊 PERFORMANCE SUMMARY")
+        print("[STATS] PERFORMANCE SUMMARY")
         print("=" * 70)
         
         if 'encrypt_send' in self.results and 'mean' in self.results['encrypt_send']:
-            print(f"  🔐 Encrypt + Send:     {self.results['encrypt_send']['mean']:.2f} ms (avg)")
+            print(f"  [CRYPTO] Encrypt + Send:     {self.results['encrypt_send']['mean']:.2f} ms (avg)")
             print(f"                         {self.results['encrypt_send']['success_rate']:.0f}% success")
         
         if 'get_messages' in self.results and 'mean' in self.results['get_messages']:
-            print(f"  📩 Get Messages:       {self.results['get_messages']['mean']:.2f} ms (avg)")
+            print(f"  [MSG] Get Messages:       {self.results['get_messages']['mean']:.2f} ms (avg)")
         
         if 'fastapi_messages' in self.results and 'mean' in self.results['fastapi_messages']:
-            print(f"  🗄️ FastAPI Direct:     {self.results['fastapi_messages']['mean']:.2f} ms (avg)")
+            print(f"   FastAPI Direct:     {self.results['fastapi_messages']['mean']:.2f} ms (avg)")
         
         if 'load_test' in self.results and 'avg_latency' in self.results['load_test']:
-            print(f"  🚦 Load Test:          {self.results['load_test']['avg_latency']:.2f} ms (avg)")
+            print(f"   Load Test:          {self.results['load_test']['avg_latency']:.2f} ms (avg)")
             print(f"                         P95: {self.results['load_test']['p95_latency']:.2f} ms")
             print(f"                         {self.results['load_test']['success_rate']:.0f}% success")
         
         if 'websocket' in self.results and 'avg_latency' in self.results['websocket']:
-            print(f"  🔌 WebSocket:          {self.results['websocket']['avg_latency']:.2f} ms (avg)")
+            print(f"   WebSocket:          {self.results['websocket']['avg_latency']:.2f} ms (avg)")
         
         print("=" * 70)
-        print(f"📁 Report saved: {filename}")
+        print(f" Report saved: {filename}")
         
         # Save readable version
         readable_filename = f"performance_report_{timestamp}.txt"
@@ -306,7 +306,7 @@ class StandalonePerformanceTest:
             f.write("=" * 50 + "\n\n")
             f.write(json.dumps(self.results, indent=2))
         
-        print(f"📁 Readable report: {readable_filename}")
+        print(f" Readable report: {readable_filename}")
 
 
 # ============ MAIN ============
@@ -323,7 +323,7 @@ if __name__ == "__main__":
         group_id_hex = sys.argv[3]
         group_id_b64 = sys.argv[4]
         
-        print(f"\n📋 Test Configuration:")
+        print(f"\n Test Configuration:")
         print(f"   User ID: {user_id[:20]}...")
         print(f"   Group ID: {group_id_hex[:20]}...")
         print(f"   Token: {token[:50]}...")
@@ -332,14 +332,14 @@ if __name__ == "__main__":
         tester.run_all_tests()
         
     else:
-        print("\n❌ Missing arguments!")
+        print("\n[ERROR] Missing arguments!")
         print("\nUsage:")
         print("  python standalone_performance_test.py <token> <user_id> <group_id_hex> <group_id_b64>")
         print("\nExample:")
         print("  python standalone_performance_test.py \"eyJhbGciOiJIUzI1NiIs...\" \"35e9acb6-bd39-4ec5-a1a6-cb30cfe89a71\" \"ae214897af81bf7ec1c58900dae0c828\" \"riFIl6+Bv37BxYkA2uDIKA==\"")
         
         # Interactive mode
-        print("\n🔧 Running in interactive mode...")
+        print("\n Running in interactive mode...")
         token = input("Enter your token: ").strip()
         user_id = input("Enter your user_id: ").strip()
         group_id_hex = input("Enter group_id_hex: ").strip()
@@ -349,4 +349,4 @@ if __name__ == "__main__":
             tester = StandalonePerformanceTest(token, user_id, group_id_hex, group_id_b64)
             tester.run_all_tests()
         else:
-            print("❌ All fields are required!")
+            print("[ERROR] All fields are required!")

@@ -70,7 +70,7 @@ class BinaryTree:
 
 def derive_group_key(member, root, cipher_suite):
     """Compute group key from member's perspective"""
-    print(f"\n🔐 {member['username']} computing group key...")
+    print(f"\n[CRYPTO] {member['username']} computing group key...")
 
     # Find own leaf
     def find_leaf(node):
@@ -111,7 +111,7 @@ def derive_group_key(member, root, cipher_suite):
 
 def test_v2():
     print("="*110)
-    print("🧪 Tree-based Group Diffie-Hellman v2 - Improved")
+    print("[TEST] Tree-based Group Diffie-Hellman v2 - Improved")
     print("="*110)
 
     users = ["alice", "bob", "charlie"]
@@ -139,9 +139,9 @@ def test_v2():
             same = False
 
     if same and first:
-        print("\n✅ SUCCESS! All users derived the **same** group key!")
+        print("\n[OK] SUCCESS! All users derived the **same** group key!")
     else:
-        print("\n❌ Still different. We can continue tuning.")
+        print("\n[ERROR] Still different. We can continue tuning.")
 
     return same
 
