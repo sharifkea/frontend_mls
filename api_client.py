@@ -1,8 +1,6 @@
 # api_client.py
 import cryptography, base64, requests, sys, secrets, hashlib, time
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-import api_client_2
-import api_client_3
 from cryp_hpke import simple_hpke_seal, simple_hpke_open
 from flask import session
 from app import user_crypto_store
@@ -95,21 +93,6 @@ def login_user(username: str, password: str):
         #print(f"Login failed: {str(e)}")
         return {"error": str(e)}
 
-def get_user_by_username(username: str):
-    """Get user information by username"""
-    try:
-        response = requests.get(
-            f"{BASE_URL}/users?username={username}",
-            headers={"Content-Type": "application/json"}
-        )
-        response.raise_for_status()
-        data = response.json()
-        users = data.get('users', [])
-        return users[0] if users else None
-    except Exception as e:
-        #print(f"Get user by username failed: {str(e)}")
-        return None
-
 # ============ KEY PACKAGE MANAGEMENT ============
 
 def upload_keypackage(user_id: str, key_package_bytes: bytes):
@@ -175,72 +158,9 @@ def get_my_groups(token: str):
         #print(f"[ERROR] Error fetching groups: {str(e)}")
         return {"error": str(e), "groups": []}
 
-def get_epoch_secret(group_id_b64: str, epoch: int, token: str):
-    """Get epoch secret from the database"""
-    try:
-        import base64
-        import requests
-        
-        group_id_bytes = base64.b64decode(group_id_b64)
-        group_id_hex = group_id_bytes.hex()
-        
-        url = f"{BASE_URL}/groups/{group_id_hex}/epoch-secrets/{epoch}"
-        #print(f"Fetching epoch secret from: {url}")
-        
-        response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            #print(f"[ERROR] Failed to get epoch secret: {response.status_code}")
-            return {"error": f"HTTP {response.status_code}"}
-    except Exception as e:
-        #print(f"[ERROR] Error getting epoch secret: {str(e)}")
-        return {"error": str(e)}
     
 # ============ MESSAGE MANAGEMENT ============
 
-def send_message(group_id: str, ciphertext: str, nonce: str, epoch: int, token: str):
-    """Store an encrypted message"""
-    try:
-        payload = {
-            "group_id": group_id,
-            "ciphertext": ciphertext,
-            "nonce": nonce,
-            "epoch": epoch,
-            "content_type": 1,  # application message
-            "wire_format": 1     # private message
-        }
-        
-        response = requests.post(
-            f"{BASE_URL}/messages",
-            json=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}"
-            }
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        #print(f"Send message failed: {str(e)}")
-        return {"error": str(e)}
-
-def get_group_messages(group_id_b64: str, token: str, since_epoch: int = None):
-    """Get messages - using hex in URL"""
-    try:
-        group_id_bytes = base64.b64decode(group_id_b64)
-        group_id_hex = group_id_bytes.hex()
-        
-        url = f"{BASE_URL}/groups/{group_id_hex}/messages"
-        params = {"limit": 100}
-        if since_epoch:
-            params["since_epoch"] = since_epoch
-            
-        response = requests.get(url, params=params, headers={"Authorization": f"Bearer {token}"})
-        return response.json()
-    except Exception as e:
-        return {"error": str(e)}
     
 # ============ CLEANUP ============
 
@@ -261,38 +181,6 @@ def create_group_with_id(group_name: str, cipher_suite: int, token: str, group_i
         return response.json()
     except Exception as e:
         return {"error": str(e)}
-
-def store_epoch_secret(group_id_b64: str, epoch: int, epoch_secret: bytes, token: str):
-    #print(f"\n=== Storing epoch secret for group {group_id_b64} epoch {epoch} ===")
-    
-    import base64
-    import requests
-
-    # Convert base64 → bytes → hex
-    group_id_bytes = base64.b64decode(group_id_b64)
-    group_id_hex = group_id_bytes.hex()   # ← this is what you want
-
-    url = f"{BASE_URL}/groups/{group_id_hex}/epoch-secret"
-    
-    payload = {
-        "epoch": epoch,
-        "epoch_secret": base64.b64encode(epoch_secret).decode('ascii')
-    }
-
-    #print(f"→ URL: {url}")
-    #print(f"→ Payload keys: {list(payload.keys())}")
-
-    try:
-        r = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
-        r.raise_for_status()
-        #print("SUCCESS: Epoch secret stored")
-        #print("Response:", r.json())
-        return True
-    except Exception as e:
-        #print("FAILED:", str(e))
-        if hasattr(e, 'response') and e.response is not None:
-            print("Response text:", e.response.text)
-        return False
 
  
 def update_group_epoch(group_id: str, new_epoch: int, token: str):
@@ -557,7 +445,7 @@ def encrypt_and_send_message(group_id_b64: str, message_text: str, token: str, u
                 return {"error": "No tree in group_state"}
         
         # Print tree details for this user
-        tree_hash = api_client_2.get_tree_hash(tree, group_state['cipher_suite'])
+        #tree_hash = api_client_2.get_tree_hash(tree, group_state['cipher_suite'])
         #print(f"   [TREE] Tree hash: {tree_hash[:16]}...")
         #print(f"   [TREE] Leaves count: {len(tree.leaves)}")
         #print(f"   [TREE] Nodes count: {tree.nodes}")
@@ -878,27 +766,60 @@ def notify_group_update_batch(group_id_b64: str, user_ids: List[str], update_dat
     except Exception as e:
         print(f"[ERROR] Batch notification failed: {e}")
         return {"status": "error", "error": str(e)}
-def notify_group_creators_batch(group_ids_b64: dict, creator_ids: List[str], group_data: dict, token: str) -> dict:
-    """Notify group creators about new group in one request"""
-    responses={}
+
+def derive_epoch_secret_from_tree(tree: RatchetTree, cipher_suite: CipherSuite, final_secret=None) -> bytes:
+    """Derive epoch secret from a properly repaired tree"""
+    if tree is None:
+        raise ValueError("No tree provided")
+    
+    print(f"\n{'='*60}")
+    print(f"[TREE] DERIVING EPOCH SECRET FROM TREE")
+    print(f"{'='*60}")
+    print(f"   Tree leaves: {len(tree.leaves)}")
+    print(f"   Tree nodes: {tree.nodes}")
+    
+    # Print tree hash BEFORE any fixes
     try:
-        for group_id_b64 in group_ids_b64.values():
-            group_id_bytes = base64.b64decode(group_id_b64)
-            group_id_hex = group_id_bytes.hex()
-            print(f"Notifying creators about group {group_id_hex} (base64: {group_id_b64})")
-            response = requests.post(
-                f"{BASE_URL}/api/notify-group-creators-batch",
-                json={
-                    "creator_ids": creator_ids,
-                    "group_id": group_id_b64,
-                    "group_data": group_data
-                },
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=10
-            )
-            responses[group_id_b64] = response.raise_for_status().json() if response.status_code == 200 else {"status": "error", "error": f"HTTP {response.status_code}"}
-        #response.raise_for_status()
-        return responses
+        original_hash = tree.hash(cipher_suite)
+        print(f"   Original tree hash (first 16): {original_hash[:16].hex()}")
     except Exception as e:
-        print(f"[ERROR] Batch notify creators failed: {e}")
-        return {"status": "error", "error": str(e)}
+        print(f"   Original tree hash: ERROR - {e}")
+    
+    # ===== FORCE leaf indices for ALL leaves =====
+    print(f"\n[STATS] Fixing leaf indices...")
+    for i, leaf in enumerate(tree.leaves):
+        if isinstance(leaf, LeafNode):
+            if not hasattr(leaf, '_leaf_index') or leaf._leaf_index is None:
+                leaf._leaf_index = i
+                #print(f"   Fixed leaf {i}: set _leaf_index = {leaf._leaf_index}")
+            #else:
+                #print(f"   Leaf {i}: _leaf_index = {leaf._leaf_index}")
+    
+    # Also ensure node indices
+    for i in range(tree.nodes):
+        node = tree[i]
+        if hasattr(node, '_node_index'):
+            if node._node_index is None:
+                node._node_index = i
+    
+    tree.update_leaf_index()
+    tree.update_node_index()
+    
+    # Print tree hash AFTER fixes
+    try:
+        fixed_hash = tree.hash(cipher_suite)
+        print(f"\n   Fixed tree hash (first 16): {fixed_hash[:16].hex()}")
+    except Exception as e:
+        print(f"   Fixed tree hash: ERROR - {e}")
+        raise
+    
+    # Derive epoch secret
+    root_secret = tree.hash(cipher_suite)
+    
+    epoch_secret = DeriveSecret(cipher_suite, root_secret+final_secret, b"epoch")
+    
+    print(f"\n   root_secret (first 8): {root_secret[:8].hex()}")
+    print(f"   epoch_secret (first 8): {epoch_secret[:8].hex()}")
+    print(f"{'='*60}\n")
+    
+    return epoch_secret, root_secret

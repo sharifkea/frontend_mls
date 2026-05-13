@@ -217,22 +217,3 @@ def finalize_tree_indices(group):
         tree.update_node_index()
         group["_indices_dirty"] = False
         print(f"   Finalized tree indices: {len(tree.leaves)} leaves, {tree.nodes} nodes")
-def add_member_to_tree(tree, new_leaf_index: int, new_kp_bytes: bytes) -> tuple[bytes, dict]:
-    """
-    Optimized version - reduces tree operations
-    """
-    #print(f"\n[ADD] Adding {new_member_id} to tree")
-    
-    new_kp = KeyPackage.deserialize(bytearray(new_kp_bytes))
-    new_leaf = new_kp.content.leaf_node
-    
-    # Only extend if necessary (minimal extension)
-    if new_leaf_index >= tree.nodes:
-        tree.extend()
-    
-    tree[new_leaf_index] = new_leaf
-    tree[new_leaf_index]._leaf_index = new_leaf_index
-    
-    tree.update_leaf_index()
-    tree.update_node_index()
-    return tree

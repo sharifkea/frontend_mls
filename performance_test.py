@@ -2,7 +2,6 @@
 import time
 import statistics
 import api_client
-import api_client_2
 from app import user_crypto_store
 
 class PerformanceTest:

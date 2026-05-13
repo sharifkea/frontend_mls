@@ -1,5 +1,5 @@
 # app.py
-import uuid, os, time, sys, json, base64, api_client,api_client_2,api_client_3,create_keypakage,secrets,requests
+import uuid, os, time, sys, json, base64, api_client,api_client_3,create_keypakage,secrets,requests
 
 
 from flask import Flask, render_template, request, jsonify, session
@@ -358,7 +358,7 @@ def add_member_to_group():
         
         # ========== STEP 6: Derive new epoch secret ==========
         step_start = time.perf_counter()
-        new_epoch_secret, new_root_secret = api_client_2.derive_epoch_secret_from_tree(new_tree, cs, final_secret)
+        new_epoch_secret, new_root_secret = api_client.derive_epoch_secret_from_tree(new_tree, cs, final_secret)
         new_epoch = current_epoch + 1
         timings['6_derive_secrets'] = time.perf_counter() - step_start
         
@@ -860,21 +860,6 @@ def get_messages():
     })
     
     
-@app.route('/api/debug/active-sessions', methods=['GET'])
-def debug_active_sessions():
-    """Debug endpoint to check active sessions"""
-    user_id = session.get('user_id')
-    
-    return jsonify({
-        'active_sessions': list(active_sessions.keys()),
-        'active_users': [active_sessions[uid]['username'] for uid in active_sessions],
-        'count': len(active_sessions),
-        'your_session': {
-            'user_id': user_id,
-            'in_active_sessions': user_id in active_sessions if user_id else False
-        }
-    })
-    
 
 @app.route('/api/welcomes/process', methods=['POST'])
 def process_welcome():
@@ -1136,7 +1121,7 @@ def create_group_with_online():
     
     # ========== STEP 10: Derive secrets ==========
     step_start = time.time()
-    epoch_secret, root_secret = api_client_2.derive_epoch_secret_from_tree(final_tree, cs,final_secret)
+    epoch_secret, root_secret = api_client.derive_epoch_secret_from_tree(final_tree, cs,final_secret)
     timings['10_derive_secrets'] = time.time() - step_start
     
     # ========== STEP 11: Store group state ==========
@@ -1266,22 +1251,6 @@ def request_join_group():
         print(f"Error requesting join: {e}")
         return jsonify({'error': str(e)}), 500
     
-@app.route('/api/debug/user-state', methods=['GET'])
-def debug_user_state():
-    user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    result = {}
-    if user_id in user_crypto_store and 'groups' in user_crypto_store[user_id]:
-        for group_id, state in user_crypto_store[user_id]['groups'].items():
-            result[group_id] = {
-                'epoch': state.get('epoch'),
-                'leaves': len(state.get('tree', {}).leaves) if state.get('tree') else 0,
-                'tree_hash': state.get('tree').hash(cs).hex()[:16] if state.get('tree') else None
-            }
-    
-    return jsonify(result)
 
 def update_state(user_id, group_id_b64, token=None):
     #print(f"\n[UPDATE] Updating group state for user {user_id}")
@@ -1349,14 +1318,81 @@ def update_state(user_id, group_id_b64, token=None):
     
     #print(f"[OK] User {user_id} group state updated")
     #print(f"   Tree has {len(tree.leaves)} leaves, epoch {current_epoch}")
-    
     return new_group_state
+
+@app.route('/api/messages/update-read-status', methods=['POST'])
+def update_read_status():
+    """Update the last displayed message ID for a group"""
+    data = request.json
+    group_id_b64 = data.get('group_id_b64')
+    message_id = data.get('message_id')
+    
+    user_id = session.get('user_id')
+    
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if user_id not in user_crypto_store:
+        return jsonify({'error': 'User not found'}), 400
+    
+    if 'groups' not in user_crypto_store[user_id]:
+        return jsonify({'error': 'No groups'}), 400
+    
+    if group_id_b64 not in user_crypto_store[user_id]['groups']:
+        return jsonify({'error': 'Group not found'}), 404
+    
+    # Update the last displayed message ID
+    user_crypto_store[user_id]['groups'][group_id_b64]['last_displayed_message_id'] = message_id
+    
+    # Add to displayed messages list if not already there
+    if 'displayed_messages' not in user_crypto_store[user_id]['groups'][group_id_b64]:
+        user_crypto_store[user_id]['groups'][group_id_b64]['displayed_messages'] = []
+    
+    if message_id not in user_crypto_store[user_id]['groups'][group_id_b64]['displayed_messages']:
+        user_crypto_store[user_id]['groups'][group_id_b64]['displayed_messages'].append(message_id)
+    
+    return jsonify({'success': True})
+
+#debug endpoints
+@app.route('/api/debug/user-state', methods=['GET'])
+def debug_user_state():
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    result = {}
+    if user_id in user_crypto_store and 'groups' in user_crypto_store[user_id]:
+        for group_id, state in user_crypto_store[user_id]['groups'].items():
+            result[group_id] = {
+                'epoch': state.get('epoch'),
+                'leaves': len(state.get('tree', {}).leaves) if state.get('tree') else 0,
+                'tree_hash': state.get('tree').hash(cs).hex()[:16] if state.get('tree') else None
+            }
+    
+    return jsonify(result)
+
+@app.route('/api/debug/active-sessions', methods=['GET'])
+def debug_active_sessions():
+    """Debug endpoint to check active sessions"""
+    user_id = session.get('user_id')
+    
+    return jsonify({
+        'active_sessions': list(active_sessions.keys()),
+        'active_users': [active_sessions[uid]['username'] for uid in active_sessions],
+        'count': len(active_sessions),
+        'your_session': {
+            'user_id': user_id,
+            'in_active_sessions': user_id in active_sessions if user_id else False
+        }
+    })
+    
+
 
 def initialize_group_state_with_keys(group_id_b64: str, tree, cipher_suite, my_leaf_index: int, current_epoch: int, my_user_id: str, members: list, epoch_secret=None,final_secret=None, root_secret=None) -> dict:
     """
     Initialize group state with per-sender root key tracking and message read tracking.
     """
-    from api_client_2 import derive_epoch_secret_from_tree
+    
     
     # Derive initial root secret
     #epoch_secret, root_secret = derive_epoch_secret_from_tree(tree, cipher_suite)
@@ -1408,39 +1444,6 @@ def initialize_group_state_with_keys(group_id_b64: str, tree, cipher_suite, my_l
     #print(f"   Tracking {len(per_sender_roots)} senders")
     
     return group_state
-
-@app.route('/api/messages/update-read-status', methods=['POST'])
-def update_read_status():
-    """Update the last displayed message ID for a group"""
-    data = request.json
-    group_id_b64 = data.get('group_id_b64')
-    message_id = data.get('message_id')
-    
-    user_id = session.get('user_id')
-    
-    if not user_id:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    if user_id not in user_crypto_store:
-        return jsonify({'error': 'User not found'}), 400
-    
-    if 'groups' not in user_crypto_store[user_id]:
-        return jsonify({'error': 'No groups'}), 400
-    
-    if group_id_b64 not in user_crypto_store[user_id]['groups']:
-        return jsonify({'error': 'Group not found'}), 404
-    
-    # Update the last displayed message ID
-    user_crypto_store[user_id]['groups'][group_id_b64]['last_displayed_message_id'] = message_id
-    
-    # Add to displayed messages list if not already there
-    if 'displayed_messages' not in user_crypto_store[user_id]['groups'][group_id_b64]:
-        user_crypto_store[user_id]['groups'][group_id_b64]['displayed_messages'] = []
-    
-    if message_id not in user_crypto_store[user_id]['groups'][group_id_b64]['displayed_messages']:
-        user_crypto_store[user_id]['groups'][group_id_b64]['displayed_messages'].append(message_id)
-    
-    return jsonify({'success': True})
 
 if __name__ == '__main__': 
     #app.run(debug=True, host='0.0.0.0', port=5000)

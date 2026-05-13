@@ -4,7 +4,6 @@ import statistics
 from api_client import encrypt_and_send_message, decrypt_message
 from app import add_member_to_group, create_group_with_online
 import api_client
-import api_client_2
 import json
 from datetime import datetime
 
@@ -117,7 +116,7 @@ class PerformanceTimer:
         
         for i in range(iterations):
             start = time.perf_counter()
-            epoch_secret, root_secret = api_client_2.derive_epoch_secret_from_tree(
+            epoch_secret, root_secret = api_client.derive_epoch_secret_from_tree(
                 tree, cipher_suite, final_secret
             )
             end = time.perf_counter()
